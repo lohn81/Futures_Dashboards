@@ -809,6 +809,9 @@
     let durationTimer = null;
     let externalCandles = {};
     let externalCandlesAt = 0;
+    let atlasHistory = {};
+    let atlasFiles = [];
+    let atlasHistoryAt = 0;
     let tradingViewSnapshots = {};
     let tradingViewHistory = [];
     let tradingViewBrowserHistory = [];
@@ -944,6 +947,47 @@
       const day = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
       day.setHours(8, 55, 0, 0);
       return day.getTime();
+    }
+
+    function timeframeKeyFromMs(lookbackMs) {
+      if (lookbackMs === 5 * 60 * 1000) return "5m";
+      if (lookbackMs === 15 * 60 * 1000) return "15m";
+      if (lookbackMs === 30 * 60 * 1000) return "30m";
+      return null;
+    }
+
+    function normalizeAtlasRows(rows) {
+      return (Array.isArray(rows) ? rows : [])
+        .map((row) => ({
+          ...row,
+          t: Number(row.t),
+          open: Number(row.open),
+          high: Number(row.high),
+          low: Number(row.low),
+          close: Number(row.close),
+          volume: Number(row.volume),
+          quantity: Number(row.quantity)
+        }))
+        .filter((row) => Number.isFinite(row.t) && Number.isFinite(row.open) && Number.isFinite(row.high) && Number.isFinite(row.low) && Number.isFinite(row.close));
+    }
+
+    function seedAtlasIntradayHistory() {
+      ASSETS.forEach((asset) => {
+        const rows = normalizeAtlasRows(atlasHistory?.[asset]?.["5m"]);
+        if (!rows.length) return;
+        const seeded = rows
+          .filter((row) => row.t >= marketOpenTime())
+          .slice()
+          .reverse()
+          .map((row) => ({ t: row.t, price: row.close, score: 0, source: "atlas" }));
+        const live = (history[asset] || []).filter((point) => point.source !== "atlas");
+        const byTime = new Map();
+        seeded.concat(live).forEach((point) => {
+          if (Number.isFinite(point.t) && Number.isFinite(point.price)) byTime.set(point.t, point);
+        });
+        history[asset] = Array.from(byTime.values()).sort((a, b) => a.t - b.t).slice(-2400);
+      });
+      saveIntradayHistory();
     }
 
     function openingRangeStartTime() {
@@ -1097,6 +1141,38 @@
       return { open, high, low, close, range, body, upper, lower, points: prices.length, closedStart, closedEnd };
     }
 
+    function candleFromAtlas(asset, lookbackMs, now = Date.now()) {
+      const key = timeframeKeyFromMs(lookbackMs);
+      if (!key) return null;
+      const rows = normalizeAtlasRows(atlasHistory?.[asset]?.[key]);
+      const row = rows.find((item) => item.t + lookbackMs <= now);
+      if (!row) return null;
+      const open = row.open;
+      const high = row.high;
+      const low = row.low;
+      const close = row.close;
+      const range = Math.max(0.0001, high - low);
+      const body = Math.abs(close - open);
+      const upper = high - Math.max(open, close);
+      const lower = Math.min(open, close) - low;
+      return {
+        open,
+        high,
+        low,
+        close,
+        range,
+        body,
+        upper,
+        lower,
+        points: 1,
+        closedStart: row.t,
+        closedEnd: row.t + lookbackMs,
+        source: "Atlas CSV",
+        volume: row.volume,
+        quantity: row.quantity
+      };
+    }
+
     function trendlineFromHistory(asset, now = Date.now()) {
       const points = (history[asset] || []).filter((point) => Number.isFinite(point.price) && point.t >= marketOpenTime()).slice(-180);
       if (points.length < 3) return null;
@@ -1157,7 +1233,7 @@
       return TIMEFRAMES.map((tf) => {
         const rows = scoreWindow(asset, tf.lookbackMs, now);
         const slope = slopeFromScores(rows, total);
-        const candle = candleFromHistory(asset, tf.lookbackMs, rowInputs.last, now);
+        const candle = candleFromAtlas(asset, tf.lookbackMs, now) || candleFromHistory(asset, tf.lookbackMs, rowInputs.last, now);
         const structure = nearestStructure(asset, rowInputs.last, rowInputs.trueRange, rowInputs);
         const candleRead = candleSignal(candle, total, structure);
         const structureBias = Number.isFinite(structure.trendDistance)
@@ -2043,7 +2119,7 @@
                 <span>O/H/L/C ${fmt(tf.candle.open, precision)} / ${fmt(tf.candle.high, precision)} / ${fmt(tf.candle.low, precision)} / ${fmt(tf.candle.close, precision)}</span>
                 <span>Range ${fmt(tf.candle.range, precision)} | Body ${fmt(tf.candle.body, precision)}</span>
                 <span>Upper wick ${fmt(tf.candle.upper, precision)} | Lower wick ${fmt(tf.candle.lower, precision)}</span>
-                <span>Closed ${new Date(tf.candle.closedEnd).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</span>
+                <span>Closed ${new Date(tf.candle.closedEnd).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })} | ${tf.candle.source || "Live DDE"}</span>
               </div>
             </div>`).join("")}
           </div>
@@ -2066,6 +2142,23 @@
         if (lastPayload) renderFromPayload(lastPayload);
       } catch {
         externalCandlesAt = Date.now();
+      }
+    }
+
+    async function loadAtlasHistory(force = false) {
+      const now = Date.now();
+      if (!force && now - atlasHistoryAt < 60000) return;
+      try {
+        const response = await fetch("/api/atlas-history", { cache: "no-store" });
+        if (!response.ok) throw new Error(`Atlas history ${response.status}`);
+        const payload = await response.json();
+        atlasHistory = payload.assets || {};
+        atlasFiles = Array.isArray(payload.files) ? payload.files : [];
+        atlasHistoryAt = Date.now();
+        seedAtlasIntradayHistory();
+        if (lastPayload) renderFromPayload(lastPayload);
+      } catch {
+        atlasHistoryAt = Date.now();
       }
     }
 
@@ -2109,6 +2202,7 @@
         else notes.push("No strong cross-asset confirmation yet. Let aggression and VWAP decide.");
       }
       notes.push("Aggression, VWAP, HiLo, RSI, stochastic, DI, and money-flow columns are now live inputs.");
+      if (atlasFiles.length) notes.push(`Atlas CSV history loaded from C:\\project atlas: ${atlasFiles.length} files feeding 5m/15m/30m candle analysis.`);
       notes.push(`${historicalMarket.source}: ${historicalMarket.loaded ? `daily confirmation loaded for ${historicalMarket.details.map((item) => item.name).join(", ")}.` : "using local DDE session until public daily history is reachable."}`);
       notes.push("TradingView WIN1!/WDO1! uses local 15m browser captures when you run the helper on the logged-in chart; scanner/page values are fallback references.");
       notes.push("Fields not present in Excel are no longer estimated; the dashboard scores what Profit exports.");
@@ -2168,6 +2262,7 @@
         if (!res.ok) throw new Error(`Bridge returned ${res.status}`);
         const payload = await res.json();
         renderFromPayload(payload);
+        loadAtlasHistory();
         status.textContent = `Live from Excel: ${payload.updatedAt || "now"} (${Object.keys(payload.quotes || {}).length} symbols, ${(payload.columns || []).length} columns).`;
       } catch (error) {
         status.textContent = lastPayload
@@ -2183,6 +2278,7 @@
       if (liveTimer) clearInterval(liveTimer);
       if (durationTimer) clearInterval(durationTimer);
       pollLiveBridge();
+      loadAtlasHistory();
       loadExternalCandles();
       loadTradingViewSnapshots();
       liveTimer = setInterval(pollLiveBridge, 2000);
@@ -2255,6 +2351,7 @@
     document.getElementById("globalNotes").innerHTML = `<li><span class="dot"></span><span>Start the bridge and open this page from http://127.0.0.1:8765/. The dashboard now connects automatically.</span></li>`;
     document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
     loadHistoricalContext().catch(() => {});
+    loadAtlasHistory(true);
     loadExternalCandles(true);
     loadTradingViewSnapshots(true);
     startLivePolling();

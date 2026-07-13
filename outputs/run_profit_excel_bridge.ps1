@@ -1,5 +1,6 @@
 param(
   [string]$WorkbookPath = "C:\Work Hunting\Quotes.xlsx",
+  [string]$AtlasPath = "C:\project atlas",
   [int]$Port = 8765
 )
 
@@ -12,6 +13,9 @@ $script:LastTradingViewReadAt = [DateTime]::MinValue
 $script:TradingViewCacheMs = 60000
 $script:TradingViewHistoryPath = Join-Path $PSScriptRoot "tradingview_minute_snapshots.json"
 $script:TradingViewBrowserCapturePath = Join-Path $PSScriptRoot "tradingview_browser_captures.json"
+$script:LastAtlasJson = $null
+$script:LastAtlasReadAt = [DateTime]::MinValue
+$script:AtlasCacheMs = 60000
 
 function Convert-ToNumber($value) {
   if ($null -eq $value) { return $null }
@@ -230,6 +234,84 @@ function Get-ExternalNineAmCandlesJson {
     caveat = "Free public sources normally do not provide official 1-minute WINFUT/WDOFUT futures candles. Values here are external proxies unless marked official."
     candles = $candles
   } | ConvertTo-Json -Depth 8)
+}
+
+function Convert-AtlasCandleRow($row, $timeframe) {
+  $dt = [datetime]::ParseExact("$($row.Date) $($row.Time)", "MM/dd/yyyy HH:mm:ss", [Globalization.CultureInfo]::InvariantCulture)
+  $dto = [DateTimeOffset]::new($dt, [TimeSpan]::FromHours(-3))
+  return [ordered]@{
+    asset = [string]$row.Asset
+    timeframe = $timeframe
+    date = [string]$row.Date
+    time = [string]$row.Time
+    iso = $dto.ToString("yyyy-MM-ddTHH:mm:sszzz")
+    t = $dto.ToUnixTimeMilliseconds()
+    open = Convert-ToNumber $row.Open
+    high = Convert-ToNumber $row.High
+    low = Convert-ToNumber $row.Low
+    close = Convert-ToNumber $row.Close
+    volume = Convert-ToNumber $row.Volume
+    quantity = Convert-ToNumber $row.Quantity
+  }
+}
+
+function Get-AtlasHistoryJson {
+  $now = Get-Date
+  $cacheAgeMs = ($now - $script:LastAtlasReadAt).TotalMilliseconds
+  if ($script:LastAtlasJson -and $cacheAgeMs -lt $script:AtlasCacheMs) {
+    return $script:LastAtlasJson
+  }
+
+  $payload = [ordered]@{
+    updatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    source = $AtlasPath
+    status = "ok"
+    assets = [ordered]@{}
+    files = @()
+    error = $null
+  }
+
+  if (!(Test-Path -LiteralPath $AtlasPath)) {
+    $payload.status = "missing_folder"
+    $payload.error = "Atlas folder was not found: $AtlasPath"
+    $script:LastAtlasJson = ($payload | ConvertTo-Json -Depth 10)
+    $script:LastAtlasReadAt = Get-Date
+    return $script:LastAtlasJson
+  }
+
+  $files = @(Get-ChildItem -LiteralPath $AtlasPath -Filter "*.csv" -File | Sort-Object Name)
+  foreach ($file in $files) {
+    if ($file.BaseName -notmatch "^(?<asset>[A-Z0-9]+)_F_0_(?<tf>5min|15min|30min)$") { continue }
+    $asset = $matches.asset
+    $timeframe = $matches.tf -replace "min", "m"
+    if (!$payload.assets[$asset]) {
+      $payload.assets[$asset] = [ordered]@{}
+    }
+    try {
+      $rows = @(Import-Csv -LiteralPath $file.FullName -Delimiter ";" | ForEach-Object { Convert-AtlasCandleRow $_ $timeframe })
+      $payload.assets[$asset][$timeframe] = $rows
+      $payload.files += [ordered]@{
+        name = $file.Name
+        asset = $asset
+        timeframe = $timeframe
+        rows = $rows.Count
+        lastWriteTime = $file.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
+      }
+    } catch {
+      $payload.files += [ordered]@{
+        name = $file.Name
+        asset = $asset
+        timeframe = $timeframe
+        rows = 0
+        error = $_.Exception.Message
+        lastWriteTime = $file.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
+      }
+    }
+  }
+
+  $script:LastAtlasJson = ($payload | ConvertTo-Json -Depth 10)
+  $script:LastAtlasReadAt = Get-Date
+  return $script:LastAtlasJson
 }
 
 function Get-TradingViewHistory {
@@ -490,6 +572,7 @@ $listener.Start()
 Write-Host ""
 Write-Host "Profit Excel bridge is running."
 Write-Host "Workbook: $WorkbookPath"
+Write-Host "Atlas CSVs: $AtlasPath"
 Write-Host "Dashboard: $prefix"
 Write-Host "Quotes API: $($prefix)api/quotes"
 Write-Host "Keep Excel and this window open. Press Ctrl+C to stop."
@@ -522,6 +605,8 @@ try {
         Write-Response $context 200 "application/json; charset=utf-8" (Get-CachedQuotesJson)
       } elseif ($path -eq "/api/external-9am-candles") {
         Write-Response $context 200 "application/json; charset=utf-8" (Get-ExternalNineAmCandlesJson)
+      } elseif ($path -eq "/api/atlas-history") {
+        Write-Response $context 200 "application/json; charset=utf-8" (Get-AtlasHistoryJson)
       } elseif ($path -eq "/api/tradingview-snapshots") {
         Write-Response $context 200 "application/json; charset=utf-8" (Get-TradingViewSnapshotsJson)
       } else {
