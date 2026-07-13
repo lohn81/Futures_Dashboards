@@ -248,8 +248,9 @@ try {
     try {
       if ($context.Request.HttpMethod -eq "OPTIONS") {
         Write-Response $context 204 "text/plain" ""
-      } elseif ($path -eq "/" -or $path -eq "/winfut_bovespa_dashboard.html" -or $path -eq "/winfut_dashboard.html" -or $path -eq "/wdofut_dashboard.html") {
+      } elseif ($path -eq "/" -or $path -eq "/winfut_bovespa_dashboard.html" -or $path -eq "/winfut_dashboard.html" -or $path -eq "/wdofut_dashboard.html" -or $path -eq "/pro_daytrade_dashboard.html") {
         $fileName = switch ($path) {
+          "/pro_daytrade_dashboard.html" { "pro_daytrade_dashboard.html" }
           "/winfut_dashboard.html" { "winfut_dashboard.html" }
           "/wdofut_dashboard.html" { "wdofut_dashboard.html" }
           default { "winfut_bovespa_dashboard.html" }
