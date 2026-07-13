@@ -808,6 +808,9 @@
     let durationTimer = null;
     let externalCandles = {};
     let externalCandlesAt = 0;
+    let tradingViewSnapshots = {};
+    let tradingViewHistory = [];
+    let tradingViewSnapshotsAt = 0;
 
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
     const score = (value, range) => clamp((value / range) * 100, -100, 100);
@@ -1417,14 +1420,22 @@
 
     function externalReferenceBias(asset) {
       const item = externalCandles?.[asset];
+      const tv = tradingViewSnapshots?.[asset];
+      const tvScanner = tv?.scanner || {};
+      const tvScore = tvScanner.status === "ok" && Number.isFinite(tvScanner.change)
+        ? clamp(tvScanner.change * 2.4, -12, 12)
+        : 0;
+      const tvNote = tvScanner.status === "ok"
+        ? `TradingView ${tv.symbol} ${signed(tvScanner.change, 2)}%`
+        : `TradingView ${tv?.page?.status || tvScanner.status || "not loaded"}`;
       if (!item || item.status !== "ok" || !Number.isFinite(item.open) || !Number.isFinite(item.close)) {
-        return { score: 0, note: "External reference unavailable or not official futures data." };
+        return { score: tvScore, note: tvNote };
       }
       const move = ((item.close - item.open) / Math.max(Math.abs(item.open), 0.0001)) * 100;
       const direction = asset === "WDOFUT" ? 1 : 1;
       return {
-        score: clamp(move * direction * 18, -10, 10),
-        note: `${item.sourceSymbol} 9AM proxy ${signed(move, 2)}%`
+        score: clamp(move * direction * 18 + tvScore, -16, 16),
+        note: `${item.sourceSymbol} 9AM proxy ${signed(move, 2)}%; ${tvNote}`
       };
     }
 
@@ -1833,6 +1844,34 @@
       </div>`;
     }
 
+    function tradingViewSnapshotCard(model, precision) {
+      const item = tradingViewSnapshots?.[model.asset];
+      if (!item) {
+        return `<div class="manual-panel">
+          <div class="plan-head"><h3>TradingView Hourly Snapshot</h3><span class="badge wait">LOADING</span></div>
+          <p class="tiny" style="margin:0;">Waiting for hourly TradingView reference fetch.</p>
+        </div>`;
+      }
+      const scanner = item.scanner || {};
+      const page = item.page || {};
+      const cls = scanner.status === "ok" ? "buy" : page.status === "ok" ? "info" : "wait";
+      const historyCount = tradingViewHistory.filter((row) => row.asset === model.asset).length;
+      return `<div class="manual-panel">
+        <div class="plan-head">
+          <h3>TradingView Hourly Snapshot</h3>
+          <span class="badge ${cls}">${scanner.status === "ok" ? "SCANNER" : page.status === "ok" ? "PAGE OK" : "LIMITED"}</span>
+        </div>
+        <div class="levels">
+          <div class="level"><span>Symbol</span><b>${item.symbol}</b><small class="level-note"><a href="${item.sourceUrl}" target="_blank" rel="noreferrer">open chart</a></small></div>
+          <div class="level"><span>Last TV Close</span><b>${Number.isFinite(scanner.close) ? fmt(scanner.close, precision) : "--"}</b></div>
+          <div class="level"><span>TV Change</span><b>${Number.isFinite(scanner.change) ? signed(scanner.change, 2) + "%" : "--"}</b></div>
+          <div class="level"><span>TV RSI</span><b>${Number.isFinite(scanner.rsi) ? fmt(scanner.rsi, 1) : "--"}</b></div>
+          <div class="level"><span>Hourly Samples</span><b>${historyCount}</b></div>
+        </div>
+        <p class="tiny" style="margin:0;">Captured ${item.capturedAt || "--"}. ${scanner.error || page.error || item.note || ""}</p>
+      </div>`;
+    }
+
     function operationTrackerCard(model, precision) {
       const manual = model.manual;
       const combined = manual?.combined;
@@ -1927,6 +1966,7 @@
           </div>
         </div>
         ${entryHypothesisCard(model, precision)}
+        ${tradingViewSnapshotCard(model, precision)}
         <div class="trade-plan">
           <div class="plan-head">
             <h3>Timeframe Recommendations</h3>
@@ -1969,6 +2009,22 @@
       }
     }
 
+    async function loadTradingViewSnapshots(force = false) {
+      const now = Date.now();
+      if (!force && now - tradingViewSnapshotsAt < 3600000) return;
+      try {
+        const response = await fetch("/api/tradingview-snapshots", { cache: "no-store" });
+        if (!response.ok) throw new Error(`TradingView snapshots ${response.status}`);
+        const payload = await response.json();
+        tradingViewSnapshots = payload.latest || {};
+        tradingViewHistory = Array.isArray(payload.history) ? payload.history : [];
+        tradingViewSnapshotsAt = Date.now();
+        if (lastPayload) renderFromPayload(lastPayload);
+      } catch {
+        tradingViewSnapshotsAt = Date.now();
+      }
+    }
+
     function renderContext(models, quotes) {
       const context = document.getElementById("contextCards");
       const rows = ["INDFUT", "DOLFUT", "PETR4", "NDAQ"].map((asset) => {
@@ -1993,6 +2049,7 @@
       }
       notes.push("Aggression, VWAP, HiLo, RSI, stochastic, DI, and money-flow columns are now live inputs.");
       notes.push(`${historicalMarket.source}: ${historicalMarket.loaded ? `daily confirmation loaded for ${historicalMarket.details.map((item) => item.name).join(", ")}.` : "using local DDE session until public daily history is reachable."}`);
+      notes.push("TradingView WIN1!/WDO1! chart pages are fetched by the bridge once per hour as reference snapshots; scanner values are used only if TradingView returns them.");
       notes.push("Fields not present in Excel are no longer estimated; the dashboard scores what Profit exports.");
       document.getElementById("globalNotes").innerHTML = notes.map((note, index) => `<li><span class="dot" style="background:${index ? "var(--blue)" : "var(--amber)"}"></span><span>${note}</span></li>`).join("");
     }
@@ -2066,6 +2123,7 @@
       if (durationTimer) clearInterval(durationTimer);
       pollLiveBridge();
       loadExternalCandles();
+      loadTradingViewSnapshots();
       liveTimer = setInterval(pollLiveBridge, 2000);
       durationTimer = setInterval(refreshIntentDurations, 1000);
     }
@@ -2137,6 +2195,7 @@
     document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
     loadHistoricalContext().catch(() => {});
     loadExternalCandles(true);
+    loadTradingViewSnapshots(true);
     startLivePolling();
   </script>
 </body>

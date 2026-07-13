@@ -3,6 +3,7 @@
 Thumbs.db
 *.log
 *.tmp
+outputs/tradingview_hourly_snapshots.json
 
 # Keep generated dashboard deliverables tracked, but ignore common local clutter.
 .vscode/

@@ -7,6 +7,10 @@ $ErrorActionPreference = "Stop"
 $script:LastQuotesJson = $null
 $script:LastReadAt = [DateTime]::MinValue
 $script:CacheMs = 900
+$script:LastTradingViewJson = $null
+$script:LastTradingViewReadAt = [DateTime]::MinValue
+$script:TradingViewCacheMs = 3600000
+$script:TradingViewHistoryPath = Join-Path $PSScriptRoot "tradingview_hourly_snapshots.json"
 
 function Convert-ToNumber($value) {
   if ($null -eq $value) { return $null }
@@ -216,6 +220,140 @@ function Get-ExternalNineAmCandlesJson {
   } | ConvertTo-Json -Depth 8)
 }
 
+function Get-TradingViewHistory {
+  if (!(Test-Path -LiteralPath $script:TradingViewHistoryPath)) {
+    return @()
+  }
+  try {
+    $raw = [IO.File]::ReadAllText($script:TradingViewHistoryPath, [Text.Encoding]::UTF8)
+    if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
+    $parsed = $raw | ConvertFrom-Json
+    if ($parsed -is [array]) { return @($parsed) }
+    return @($parsed)
+  } catch {
+    return @()
+  }
+}
+
+function Save-TradingViewHistory($history) {
+  $json = @($history) | ConvertTo-Json -Depth 8
+  [IO.File]::WriteAllText($script:TradingViewHistoryPath, $json, [Text.Encoding]::UTF8)
+}
+
+function Invoke-TradingViewScanner($symbol) {
+  $body = @{
+    symbols = @{
+      tickers = @($symbol)
+      query = @{ types = @() }
+    }
+    columns = @("name", "close", "change", "change_abs", "high", "low", "open", "volume", "Recommend.All", "RSI", "Stoch.K", "Stoch.D")
+  } | ConvertTo-Json -Depth 6
+
+  try {
+    $result = Invoke-RestMethod -Uri "https://scanner.tradingview.com/brazil/scan" -Method Post -Body $body -ContentType "application/json" -Headers @{ "User-Agent" = "Mozilla/5.0" } -TimeoutSec 10
+    if ($result.totalCount -lt 1 -or !$result.data -or !$result.data[0]) {
+      return @{ status = "no_scanner_row"; error = "TradingView scanner returned no row for $symbol." }
+    }
+    $values = @($result.data[0].d)
+    return [ordered]@{
+      status = "ok"
+      name = $values[0]
+      close = Convert-ToNumber $values[1]
+      change = Convert-ToNumber $values[2]
+      changeAbs = Convert-ToNumber $values[3]
+      high = Convert-ToNumber $values[4]
+      low = Convert-ToNumber $values[5]
+      open = Convert-ToNumber $values[6]
+      volume = Convert-ToNumber $values[7]
+      recommendation = Convert-ToNumber $values[8]
+      rsi = Convert-ToNumber $values[9]
+      stochasticK = Convert-ToNumber $values[10]
+      stochasticD = Convert-ToNumber $values[11]
+    }
+  } catch {
+    return @{ status = "scanner_error"; error = $_.Exception.Message }
+  }
+}
+
+function Invoke-TradingViewChartSnapshot($asset, $symbol, $url) {
+  $scanner = Invoke-TradingViewScanner $symbol
+  $page = [ordered]@{
+    status = "not_checked"
+    httpStatus = $null
+    title = $null
+    defSymbol = $null
+    contentLength = $null
+    error = $null
+  }
+
+  try {
+    $response = Invoke-WebRequest -UseBasicParsing -Uri $url -Headers @{
+      "User-Agent" = "Mozilla/5.0"
+      "Accept-Language" = "pt-BR,pt;q=0.9,en;q=0.8"
+    } -TimeoutSec 12
+    $content = [string]$response.Content
+    $title = [regex]::Match($content, "<title>(.*?)</title>", "Singleline").Groups[1].Value
+    $defSymbol = [regex]::Match($content, "initData\.defSymbol\s*=\s*`"([^`"]+)`"").Groups[1].Value
+    $page.status = "ok"
+    $page.httpStatus = [int]$response.StatusCode
+    $page.title = $title
+    $page.defSymbol = $defSymbol
+    $page.contentLength = $content.Length
+  } catch {
+    $page.status = "page_error"
+    $page.error = $_.Exception.Message
+  }
+
+  return [ordered]@{
+    asset = $asset
+    symbol = $symbol
+    source = "TradingView"
+    sourceUrl = $url
+    capturedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    scanner = $scanner
+    page = $page
+    note = "TradingView chart pages are used as hourly reference snapshots. They are not an official API and may not expose candle data to scripts."
+  }
+}
+
+function Get-TradingViewSnapshotsJson {
+  $now = Get-Date
+  $cacheAgeMs = ($now - $script:LastTradingViewReadAt).TotalMilliseconds
+  if ($script:LastTradingViewJson -and $cacheAgeMs -lt $script:TradingViewCacheMs) {
+    return $script:LastTradingViewJson
+  }
+
+  $sources = @(
+    @{ asset = "WINFUT"; symbol = "BMFBOVESPA:WIN1!"; url = "https://br.tradingview.com/chart/?symbol=BMFBOVESPA%3AWIN1%21" },
+    @{ asset = "WDOFUT"; symbol = "BMFBOVESPA:WDO1!"; url = "https://br.tradingview.com/chart/?symbol=BMFBOVESPA%3AWDO1%21" }
+  )
+  $history = @(Get-TradingViewHistory)
+  $latest = [ordered]@{}
+
+  foreach ($source in $sources) {
+    $snapshot = Invoke-TradingViewChartSnapshot $source.asset $source.symbol $source.url
+    $history += $snapshot
+    $latest[$source.asset] = $snapshot
+  }
+
+  $cutoff = (Get-Date).AddDays(-21)
+  $history = @($history | Where-Object {
+    try { ([datetime]$_.capturedAt) -ge $cutoff } catch { $true }
+  })
+  Save-TradingViewHistory $history
+
+  $payload = [ordered]@{
+    updatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    cacheSeconds = 3600
+    caveat = "TradingView is not treated as an official API. Scanner values are used only when TradingView returns them; chart pages are stored as hourly reference snapshots."
+    latest = $latest
+    history = $history
+  }
+  $script:LastTradingViewJson = ($payload | ConvertTo-Json -Depth 10)
+  $script:LastTradingViewReadAt = Get-Date
+  return $script:LastTradingViewJson
+}
+
 function Write-Response($context, [int]$status, [string]$contentType, [string]$body) {
   $bytes = [Text.Encoding]::UTF8.GetBytes($body)
   $context.Response.StatusCode = $status
@@ -262,6 +400,8 @@ try {
         Write-Response $context 200 "application/json; charset=utf-8" (Get-CachedQuotesJson)
       } elseif ($path -eq "/api/external-9am-candles") {
         Write-Response $context 200 "application/json; charset=utf-8" (Get-ExternalNineAmCandlesJson)
+      } elseif ($path -eq "/api/tradingview-snapshots") {
+        Write-Response $context 200 "application/json; charset=utf-8" (Get-TradingViewSnapshotsJson)
       } else {
         Write-Response $context 404 "text/plain; charset=utf-8" "Not found"
       }
