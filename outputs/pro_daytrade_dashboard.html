@@ -383,7 +383,7 @@
 
     .hypothesis-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: 1fr;
       gap: 8px;
     }
 
@@ -1484,7 +1484,7 @@
           ready: likelihood >= 85,
           note: likelihood >= 85
             ? "85% threshold is already satisfied by the 15-minute setup."
-            : `Wait for price closer to ${candidate.side === "BUY" ? "support" : "resistance"} to improve the hypothesis.`,
+            : `Wait for price closer to ${candidate.side === "BUY" ? "support" : "resistance"} to improve the entry suggestion.`,
           components: [
             ["15m", Math.round(tfScore), tf15?.candleRead?.label || "15m read"],
             ["Live", Math.round(liveScore), model.intent.label],
@@ -1816,13 +1816,13 @@
       const rows = model.entryHypotheses || [];
       return `<div class="manual-panel">
         <div class="plan-head">
-          <h3>85% Entry Hypothesis</h3>
+          <h3>85% Entry Suggestions</h3>
           <span class="stamp">15 min anchor + external references</span>
         </div>
         <div class="hypothesis-grid">
           ${rows.map((item) => `<div class="hypothesis-card">
             <div class="plan-head">
-              <h4>${item.side} hypothesis</h4>
+              <h4>${item.side} suggestion</h4>
               <span class="badge ${item.ready ? "buy" : item.likelihood < 55 ? "sell" : "wait"}">${item.likelihood}%</span>
             </div>
             <strong>${fmt(item.safeEntry, precision)}</strong>
@@ -1840,7 +1840,7 @@
             </div>
           </div>`).join("")}
         </div>
-        <p class="tiny" style="margin:0;">This is a daytrade hypothesis, not an order signal. It blends Profit DDE, the 15-minute candle/structure read, saved intraday history, Stooq daily history when reachable, and Yahoo proxy references when available.</p>
+        <p class="tiny" style="margin:0;">These are daytrade entry suggestions, not order signals. They blend Profit DDE, the 15-minute candle/structure read, saved intraday history, Stooq daily history when reachable, and Yahoo proxy references when available.</p>
       </div>`;
     }
 
