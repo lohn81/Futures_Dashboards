@@ -910,7 +910,7 @@
 
     function loadEntrySuggestionCache() {
       try {
-        const parsed = JSON.parse(localStorage.getItem("dde-entry-suggestions-15m-v1") || "{}");
+        const parsed = JSON.parse(localStorage.getItem("dde-entry-suggestions-15m-v2") || "{}");
         return parsed && typeof parsed === "object" ? parsed : {};
       } catch {
         return {};
@@ -919,7 +919,7 @@
 
     function saveEntrySuggestionCache() {
       try {
-        localStorage.setItem("dde-entry-suggestions-15m-v1", JSON.stringify(entrySuggestionCache));
+        localStorage.setItem("dde-entry-suggestions-15m-v2", JSON.stringify(entrySuggestionCache));
       } catch {}
     }
 
@@ -1466,43 +1466,72 @@
       const range = Math.max(profile.tick * profile.minRangeTicks, model.trueRange || profile.tick * 20);
       const structure = tf15?.structure || nearestStructure(model.asset, model.last, range, model);
       const external = externalReferenceBias(model.asset);
+      const micro = microTrendEdge(model.asset, model.last, range);
+      const vwapBias = Number.isFinite(model.vwap) ? score(model.last - model.vwap, range * 0.75) : 0;
+      const hiloBias = Number.isFinite(model.hilo) ? score(model.last - model.hilo, range * 0.75) : 0;
+      const intradayTrend = clamp(model.total * 0.38 + (tf15?.score || 0) * 0.28 + micro.score * 0.18 + vwapBias * 0.10 + hiloBias * 0.06, -100, 100);
+      const reversalBuyLevel = Math.max(
+        candle15.high + Math.max(profile.tick, candle15.range * 0.08),
+        Number.isFinite(model.vwap) ? model.vwap + profile.tick : -Infinity,
+        Number.isFinite(model.hilo) ? model.hilo + profile.tick : -Infinity
+      );
+      const reversalSellLevel = Math.min(
+        candle15.low - Math.max(profile.tick, candle15.range * 0.08),
+        Number.isFinite(model.vwap) ? model.vwap - profile.tick : Infinity,
+        Number.isFinite(model.hilo) ? model.hilo - profile.tick : Infinity
+      );
       const candidates = [
-        { side: "BUY", direction: 1, triggerBase: candle15.high + Math.max(profile.tick, candle15.range * 0.04), structureDistance: structure.resistanceDistance, structureLabel: "break above previous 15m high" },
-        { side: "SELL", direction: -1, triggerBase: candle15.low - Math.max(profile.tick, candle15.range * 0.04), structureDistance: structure.supportDistance, structureLabel: "break below previous 15m low" }
+        { side: "BUY", direction: 1, continuationBase: candle15.high + Math.max(profile.tick, candle15.range * 0.04), reversalBase: reversalBuyLevel, structureDistance: structure.resistanceDistance, structureLabel: "break above previous 15m high and reclaim VWAP/HiLo when counter-trend" },
+        { side: "SELL", direction: -1, continuationBase: candle15.low - Math.max(profile.tick, candle15.range * 0.04), reversalBase: reversalSellLevel, structureDistance: structure.supportDistance, structureLabel: "break below previous 15m low and lose VWAP/HiLo when counter-trend" }
       ];
 
       const rows = candidates.map((candidate) => {
+        const alignment = intradayTrend * candidate.direction;
+        const isCounterTrend = alignment < -18;
+        const isTrendContinuation = alignment > 18;
+        const rawBase = isCounterTrend ? candidate.reversalBase : candidate.continuationBase;
+        const triggerBase = roundedToTick(rawBase, profile.tick);
         const tfScore = (tf15?.score || 0) * candidate.direction;
         const liveScore = model.total * candidate.direction;
         const candleScore = (tf15?.candleRead?.bias || 0) * candidate.direction;
         const closeLocation = candle15.range ? ((candle15.close - candle15.low) / candle15.range) : 0.5;
         const closeForce = candidate.side === "BUY" ? (closeLocation - 0.5) * 24 : (0.5 - closeLocation) * 24;
         const structureScore = Number.isFinite(candidate.structureDistance) ? clamp(18 - Math.abs(candidate.structureDistance), -8, 18) : 0;
+        const trendScore = clamp(alignment * 0.42, -34, 34);
+        const counterTrendPenalty = isCounterTrend ? 18 : 0;
+        const continuationBonus = isTrendContinuation ? 7 : 0;
         const exhaustionPenalty = Math.max(0, (model.trend?.exhaustion || 0) - 70) * 0.18;
-        const provisionalPlan = buildPlanFromEntry(model.asset, candidate.side, roundedToTick(candidate.triggerBase, profile.tick), model);
+        const provisionalPlan = buildPlanFromEntry(model.asset, candidate.side, triggerBase, model);
         const provisionalRr = Math.abs(provisionalPlan.target1 - provisionalPlan.entry) / Math.max(profile.tick, Math.abs(provisionalPlan.entry - provisionalPlan.stop));
-        const baseRaw = 50 + tfScore * 0.34 + liveScore * 0.16 + candleScore * 0.72 + closeForce + structureScore + external.score + clamp((provisionalRr - 1) * 14, -8, 18) - exhaustionPenalty;
+        const baseRaw = 50 + tfScore * 0.26 + liveScore * 0.12 + trendScore + candleScore * 0.58 + closeForce + structureScore + continuationBonus + external.score + clamp((provisionalRr - 1) * 14, -8, 18) - exhaustionPenalty - counterTrendPenalty;
         const baseLikelihood = clamp(Math.round(baseRaw), 1, 100);
         const needed = Math.max(0, 85 - baseLikelihood);
-        const confirmationTicks = Math.ceil(needed / 1.6);
-        const trigger = roundedToTick(candidate.triggerBase + candidate.direction * confirmationTicks * profile.tick, profile.tick);
+        const tickValue = isCounterTrend ? 1.05 : 1.75;
+        const maxExtraTicks = isCounterTrend ? Math.max(12, Math.round(candle15.range / profile.tick * 0.45)) : Math.max(4, Math.round(candle15.range / profile.tick * 0.22));
+        const confirmationTicks = Math.min(maxExtraTicks, Math.ceil(needed / tickValue));
+        const trigger = roundedToTick(triggerBase + candidate.direction * confirmationTicks * profile.tick, profile.tick);
         const plan = buildPlanFromEntry(model.asset, candidate.side, trigger, model);
         const rr = Math.abs(plan.target1 - plan.entry) / Math.max(profile.tick, Math.abs(plan.entry - plan.stop));
-        const likelihood = clamp(Math.round(baseRaw + confirmationTicks * 1.6 + clamp((rr - provisionalRr) * 6, -4, 4)), 1, 100);
+        const likelihood = clamp(Math.round(baseRaw + confirmationTicks * tickValue + clamp((rr - provisionalRr) * 6, -4, 4)), 1, 100);
+        const mode = isCounterTrend ? "reversal confirmation" : isTrendContinuation ? "trend continuation" : "neutral confirmation";
         return {
           side: candidate.side,
           likelihood,
           safeEntry: trigger,
-          nowEntry: roundedToTick(candidate.triggerBase, profile.tick),
+          nowEntry: triggerBase,
           plan,
           rr,
           ready: likelihood >= 85,
+          mode,
+          trendAlignment: Math.round(alignment),
           candleEnd: candle15.closedEnd,
           refreshedAt: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-          note: `Trigger requires ${candidate.structureLabel}. It refreshes only after the next 15-minute candle closes.`,
+          note: isCounterTrend
+            ? `Counter-trend ${candidate.side}: requires clear reversal through VWAP/HiLo plus 15m structure.`
+            : `Trigger requires ${candidate.structureLabel}. It refreshes only after the next 15-minute candle closes.`,
           components: [
             ["15m", Math.round(tfScore), tf15?.candleRead?.label || "15m read"],
-            ["Live", Math.round(liveScore), model.intent.label],
+            ["Trend", Math.round(trendScore), `${mode}; alignment ${signed(alignment, 0)}`],
             ["Candle Close", Math.round(closeForce), `previous 15m close ${fmt(candle15.close, profile.precision)}`],
             ["Structure", Math.round(structureScore), candidate.structureLabel],
             ["External", Math.round(external.score), external.note],
@@ -1842,6 +1871,7 @@
             </div>
             <strong>${fmt(item.safeEntry, precision)}</strong>
             <p class="tiny" style="margin:0;">Force-confirmation ${item.side} entry. Base 15m trigger ${fmt(item.nowEntry, precision)}.</p>
+            <p class="tiny" style="margin:0;">Mode: ${item.mode || "confirmation"} | trend alignment ${signed(item.trendAlignment || 0, 0)}.</p>
             <div class="levels">
               <div class="level"><span>Partial</span><b>${fmt(item.plan.partial, precision)}</b></div>
               <div class="level"><span>Target 1</span><b>${fmt(item.plan.target1, precision)}</b></div>
