@@ -729,6 +729,7 @@
     const ASSETS = ["WINFUT", "WDOFUT"];
     const history = loadIntradayHistory();
     const scoreHistory = { WINFUT: [], WDOFUT: [] };
+    const dailyScoreHistory = loadDailyScoreHistory();
     const historicalMarket = { loaded: false, source: "local session", bias: 0, exhaustion: 0, details: [] };
     const manualTrades = loadManualTrades();
     const TIMEFRAMES = [
@@ -817,6 +818,40 @@
       try {
         localStorage.setItem(intradayStorageKey(), JSON.stringify(history));
       } catch {}
+    }
+
+    function dailyScoreStorageKey() {
+      return "dde-score-daily-history-v1";
+    }
+
+    function loadDailyScoreHistory() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(dailyScoreStorageKey()) || "[]");
+        return Array.isArray(parsed) ? parsed.filter((row) => row && row.date) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveDailyScoreHistory() {
+      try {
+        localStorage.setItem(dailyScoreStorageKey(), JSON.stringify(dailyScoreHistory.slice(-21)));
+      } catch {}
+    }
+
+    function updateDailyScoreHistory(models) {
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+      let row = dailyScoreHistory.find((item) => item.date === today);
+      if (!row) {
+        row = { date: today };
+        dailyScoreHistory.push(row);
+      }
+      models.forEach((model) => {
+        if (Number.isFinite(model.total)) row[model.asset] = Math.round(model.total);
+      });
+      row.updatedAt = new Date().toISOString();
+      while (dailyScoreHistory.length > 21) dailyScoreHistory.shift();
+      saveDailyScoreHistory();
     }
 
     function marketOpenTime() {
@@ -1366,13 +1401,15 @@
     }
 
     function drawChart(canvas, values, color) {
+      if (!canvas) return;
       const ctx = canvas.getContext("2d");
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.round(rect.width * dpr));
-      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+      const w = rect.width || canvas.clientWidth || 520;
+      const h = rect.height || canvas.clientHeight || 190;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
       ctx.scale(dpr, dpr);
-      const w = rect.width, h = rect.height;
       ctx.clearRect(0, 0, w, h);
       const pad = { left: 46, right: 14, top: 22, bottom: 28 };
       const openAt = marketOpenTime();
@@ -1413,6 +1450,83 @@
         ctx.lineTo(x(point.t), y(point.price));
         ctx.stroke();
       }
+      const lastPoint = series.at(-1);
+      if (lastPoint) {
+        ctx.fillStyle = color || "#2563a8";
+        ctx.beginPath();
+        ctx.arc(x(lastPoint.t), y(lastPoint.price), 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawScoreIndexChart(canvas, asset, currentScore) {
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width || canvas.clientWidth || 520;
+      const h = rect.height || canvas.clientHeight || 190;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, w, h);
+      const pad = { left: 42, right: 14, top: 22, bottom: 30 };
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+      const rows = dailyScoreHistory.slice(-21).map((row) => ({ ...row }));
+      let todayRow = rows.find((row) => row.date === today);
+      if (!todayRow) {
+        todayRow = { date: today };
+        rows.push(todayRow);
+      }
+      if (Number.isFinite(currentScore)) todayRow[asset] = Math.round(currentScore);
+      const series = rows
+        .filter((row) => Number.isFinite(row[asset]))
+        .map((row) => ({ date: row.date, score: clamp(Number(row[asset]), -100, 100) }))
+        .slice(-21);
+      const x = (index) => pad.left + (series.length <= 1 ? 0.5 : index / (series.length - 1)) * (w - pad.left - pad.right);
+      const y = (scoreValue) => pad.top + (1 - ((scoreValue + 100) / 200)) * (h - pad.top - pad.bottom);
+      ctx.strokeStyle = "#d8ded8";
+      ctx.fillStyle = "#647174";
+      ctx.font = "12px Inter, sans-serif";
+      ctx.fillText(`${asset} intent index - last 21 trading days`, pad.left, 13);
+      [-100, -50, 0, 50, 100].forEach((level) => {
+        const yy = y(level);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, yy);
+        ctx.lineTo(w - pad.right, yy);
+        ctx.strokeStyle = level === 0 ? "#9aa8a2" : "#d8ded8";
+        ctx.stroke();
+        ctx.fillStyle = "#647174";
+        ctx.fillText(String(level), 6, yy + 4);
+      });
+      if (!series.length) {
+        ctx.fillStyle = "#647174";
+        ctx.fillText("Waiting for score snapshots.", pad.left, h / 2);
+        return;
+      }
+      ctx.lineWidth = 2.5;
+      for (let i = 1; i < series.length; i++) {
+        const prev = series[i - 1];
+        const point = series[i];
+        const avg = (prev.score + point.score) / 2;
+        ctx.strokeStyle = avg >= 35 ? "#16845a" : avg <= -35 ? "#b23e3e" : "#b7791f";
+        ctx.beginPath();
+        ctx.moveTo(x(i - 1), y(prev.score));
+        ctx.lineTo(x(i), y(point.score));
+        ctx.stroke();
+      }
+      series.forEach((point, index) => {
+        ctx.fillStyle = point.score >= 35 ? "#16845a" : point.score <= -35 ? "#b23e3e" : "#b7791f";
+        ctx.beginPath();
+        ctx.arc(x(index), y(point.score), 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      const first = series[0], last = series.at(-1);
+      ctx.fillStyle = "#647174";
+      ctx.fillText(first.date.slice(5), pad.left, h - 8);
+      ctx.fillText(last.date.slice(5), Math.max(pad.left, w - 48), h - 8);
+      ctx.fillStyle = last.score >= 35 ? "#16845a" : last.score <= -35 ? "#b23e3e" : "#b7791f";
+      ctx.fillText(`Now ${signed(last.score, 0)}`, Math.max(pad.left, w - 92), 13);
     }
 
     function renderAssetCard(model) {
@@ -1449,7 +1563,8 @@
             <p class="tiny" style="margin:6px 0 0;">Updated ${model.row.time || "--"} | True range ${fmt(model.trueRange, precision)}</p>
           </div>
         </div>
-        <canvas data-chart="${model.asset}"></canvas>
+        <canvas data-score-chart="${model.asset}" aria-label="${model.asset} 21-day intent index chart"></canvas>
+        <canvas data-chart="${model.asset}" aria-label="${model.asset} intraday price chart"></canvas>
         <div class="trade-plan">
           <div class="plan-head">
             <h3>Price Suggestions</h3>
@@ -1562,7 +1677,10 @@
           </table>
         </div>
       `;
-      setTimeout(() => drawChart(div.querySelector("canvas"), history[model.asset], color), 0);
+      setTimeout(() => {
+        drawScoreIndexChart(div.querySelector(`[data-score-chart="${model.asset}"]`), model.asset, model.total);
+        drawChart(div.querySelector(`[data-chart="${model.asset}"]`), history[model.asset], color);
+      }, 0);
       return div;
     }
 
@@ -1618,6 +1736,7 @@
         if (Number.isFinite(model.total)) scoreHistory[model.asset] = scoreHistory[model.asset].slice(-719).concat({ t: Date.now(), score: model.total });
         updateIntentState(model);
       });
+      updateDailyScoreHistory(models);
       saveIntradayHistory();
       document.getElementById("assetCards").innerHTML = "";
       models.forEach((model) => document.getElementById("assetCards").appendChild(renderAssetCard(model)));
