@@ -667,9 +667,9 @@
     <main class="grid">
       <section class="grid asset-grid" id="assetCards"></section>
 
-      <section class="grid context-grid" id="contextCards"></section>
+      <section class="grid context-grid" id="contextCards" style="display:none;"></section>
 
-      <section class="panel pad">
+      <section class="panel pad" style="display:none;">
         <div class="section-title">
           <h2>Cross-Asset Reading</h2>
           <span class="stamp">WIN vs WDO</span>
@@ -705,7 +705,7 @@
         <p class="tiny" id="liveStatus" style="margin: 10px 0 0;">Waiting for bridge at http://127.0.0.1:8765/api/quotes.</p>
       </section>
 
-      <section class="panel pad">
+      <section class="panel pad" style="display:none;">
         <div class="section-title">
           <h2>Trade Notes</h2>
           <span class="badge info">model</span>
@@ -713,7 +713,7 @@
         <ul class="status-list" id="globalNotes"></ul>
       </section>
 
-      <section class="panel pad">
+      <section class="panel pad" style="display:none;">
         <div class="section-title">
           <h2>Raw Snapshot</h2>
           <span class="stamp">debug</span>
@@ -1566,150 +1566,41 @@
       div.className = "panel intent-card";
       const color = model.intent.cls === "buy" ? "var(--green)" : model.intent.cls === "sell" ? "var(--red)" : "var(--blue)";
       const precision = model.asset === "WINFUT" ? 0 : 1;
-      const openingRange = buildOpeningRangeMap(model.asset, precision);
       div.innerHTML = `
         <div class="section-title">
           <h2>${model.asset}</h2>
           <div class="intent-stamp">
             <div class="intent-topline">
-              <span class="badge ${model.intent.cls}">${model.intent.label}</span>
-              <span class="badge ${model.gauge.cls}">${model.gauge.grade}/100 ${model.gauge.label}</span>
+              <span class="badge info">CANDLE ONLY</span>
             </div>
-            <span class="stamp" data-intent-duration="${model.asset}">since ${model.intentSince.sinceText} (${formatDuration(Date.now() - model.intentSince.since)})</span>
+            <span class="stamp">last update ${model.row.time || "--"}</span>
           </div>
         </div>
         <div class="hero-score">
-          <strong>${Math.round(model.total)}</strong>
+          <strong>${fmt(model.last, precision)}</strong>
           <div>
-            <div class="price-line"><b>${fmt(model.last, precision)}</b><span>${signed(model.change)}% from open</span></div>
+            <div class="price-line"><b>${model.asset}</b><span>${signed(model.change)}% from open</span></div>
             <p class="tiny" style="margin:6px 0 0;">Updated ${model.row.time || "--"} | True range ${fmt(model.trueRange, precision)}</p>
           </div>
         </div>
         <div class="trade-plan">
           <div class="plan-head">
-            <h3>Price Suggestions</h3>
-            <span class="badge ${model.plan.side.startsWith("BUY") ? "buy" : "sell"}">${model.plan.side}</span>
-          </div>
-          <div class="levels">
-            <div class="level"><span>Entry price</span><b>${model.plan.side.startsWith("BUY") ? "BUY" : "SELL"} @ ${fmt(model.plan.entry, model.plan.precision)}</b></div>
-            <div class="level"><span>Partial realization</span><b>${fmt(model.plan.partial, model.plan.precision)}</b></div>
-            <div class="level"><span>Target 1</span><b>${fmt(model.plan.target1, model.plan.precision)}</b></div>
-            <div class="level"><span>Target 2</span><b>${fmt(model.plan.target2, model.plan.precision)}</b></div>
-            <div class="level"><span>Stop price</span><b>${fmt(model.plan.stop, model.plan.precision)}</b></div>
-          </div>
-        </div>
-        <div class="odds-grid">
-          <div class="trend-card"><span>Likelihood to Gain</span><b>${model.odds.gain}%</b><p class="tiny" style="margin:6px 0 0;">Estimated from score strength, timeframe agreement, and exhaustion risk.</p></div>
-          <div class="trend-card"><span>Likelihood to Loss</span><b>${model.odds.loss}%</b><p class="tiny" style="margin:6px 0 0;">Higher when signals conflict or move looks stretched.</p></div>
-        </div>
-        <div class="manual-panel">
-          <div class="plan-head">
-            <h3>9:00 Opening Range Map</h3>
-            <span class="badge ${openingRange.ready ? "info" : "wait"}">${openingRange.ready ? `Amp ${fmt(openingRange.amplitude, precision)}` : "WAITING"}</span>
-          </div>
-          ${openingRange.ready ? `<div class="levels">
-            <div class="level"><span>0% low</span><b>${fmt(openingRange.low, precision)}</b></div>
-            <div class="level"><span>100% high</span><b>${fmt(openingRange.high, precision)}</b></div>
-            ${openingRange.sell.map((zone) => `<div class="level"><span>Sell @ ${zone.mark}%</span><b>${zone.text}</b><small class="level-note">trend up projection</small></div>`).join("")}
-          </div>
-          <div class="levels">
-            ${openingRange.buy.map((zone) => `<div class="level"><span>Buy @ ${zone.mark}%</span><b>${zone.text}</b><small class="level-note">sell-side mirror</small></div>`).join("")}
-          </div>
-          <p class="tiny" style="margin:0;">Uses the first 5 minutes of negotiation, from 9:00:00 to 9:04:59 BRT. Low is 0%, high is 100%.</p>` : `<p class="tiny" style="margin:0;">${openingRange.note}</p>`}
-        </div>
-        <div class="manual-panel">
-          <div class="plan-head">
-            <h3>Operation Entry Score</h3>
-            <span class="badge ${model.entryEdge.cls}">${model.entryEdge.value}/100 ${model.entryEdge.label}</span>
-          </div>
-          <div class="mini-grid">
-            ${model.entryEdge.components.map((item) => `<div class="metric"><span>${item[0]}</span><b>${item[1]}</b><p class="tiny" style="margin:6px 0 0;">${item[2]}</p></div>`).join("")}
-          </div>
-          <p class="tiny" style="margin:0;">Uses live DDE indicators, closed-candle timeframes, VWAP/HiLo/structure, EMA9/EMA21, opening range, risk/reward, and past-day cross-market context.</p>
-        </div>
-        <div class="manual-panel">
-          <div class="plan-head">
-            <h3>My Operation Tracker</h3>
-            <span class="badge ${model.manual ? model.manual.cls : "info"}">${model.manual ? model.manual.action : "NO ENTRY"}</span>
-          </div>
-          ${model.manual ? `<div class="levels">
-            <div class="level"><span>My entry</span><b>${model.manual.side} @ ${fmt(model.manual.entry, model.manual.precision)}</b></div>
-            <div class="level"><span>Contracts</span><b>${model.manual.contracts.quantity}</b></div>
-            <div class="level"><span>Partial</span><b>${fmt(model.manual.partial, model.manual.precision)}</b></div>
-            <div class="level"><span>Target 1</span><b>${fmt(model.manual.target1, model.manual.precision)}</b></div>
-            <div class="level"><span>Target 2</span><b>${fmt(model.manual.target2, model.manual.precision)}</b></div>
-            <div class="level"><span>Stop</span><b>${fmt(model.manual.stop, model.manual.precision)}</b></div>
-          </div>
-          <div class="levels">
-            <div class="level"><span>At partial</span><b>${model.manual.contracts.partial} contracts</b></div>
-            <div class="level"><span>At target 1</span><b>${model.manual.contracts.target1} contracts</b></div>
-            <div class="level"><span>At target 2</span><b>${model.manual.contracts.target2} contracts</b></div>
-            <div class="level"><span>Allocation note</span><b>${model.manual.contracts.note}</b></div>
-          </div>
-          <div class="levels">
-            <div class="level"><span>Trailing stage</span><b>${model.manual.trailingStage}</b><small class="level-note">${model.manual.side === "SELL" ? "Buy-stop placement" : "Sell-stop placement"} @ ${fmt(model.manual.trailingStop, model.manual.precision)}</small></div>
-            <div class="level"><span>Suggested trail</span><b>${fmt(model.manual.trailingStop, model.manual.precision)}</b></div>
-            <div class="level"><span>Win likelihood</span><b>${model.manual.winLikelihood}%</b></div>
-            <div class="level"><span>Loss likelihood</span><b>${model.manual.lossLikelihood}%</b></div>
-            <div class="level"><span>Progress vs risk</span><b>${model.manual.progress}%</b></div>
-            <div class="level"><span>Opened</span><b>${model.manual.openedAt || "--"}</b></div>
-            <div class="level"><span>Action</span><b>${model.manual.action}</b></div>
-          </div>
-          <p class="tiny" style="margin:0;">${model.manual.trailingText}</p>` : `<p class="tiny" style="margin:0;">Tell the dashboard your real entry price and contract quantity; it will track targets, stop, staged exits, and hold/reduce/realization suggestions from that price.</p>`}
-          <div class="manual-actions">
-            <button data-manual-entry="${model.asset}" data-side="BUY">Set BUY Entry</button>
-            <button data-manual-entry="${model.asset}" data-side="SELL">Set SELL Entry</button>
-            <button data-manual-clear="${model.asset}">Clear</button>
-          </div>
-        </div>
-        <div class="trade-plan">
-          <div class="plan-head">
-            <h3>Timeframe Recommendations</h3>
-            <span class="stamp">1 to 100</span>
+            <h3>Candle Analysis</h3>
+            <span class="stamp">last closed candles</span>
           </div>
           <div class="timeframe-grid">
             ${model.timeframes.map((tf) => `<div class="timeframe-card">
               <h3>${tf.label}</h3>
-              <div class="mini-gauge" title="${tf.label}: ${tf.gauge.label}, score ${Math.round(tf.score)}" style="--angle:${tf.gauge.angle}deg; --arc-deg:${tf.gauge.arc}deg; --gauge-color:var(--${tf.gauge.cls === "buy" ? "green" : tf.gauge.cls === "sell" ? "red" : "amber"})">
-                <span class="mini-fill"></span>
-                <b>${tf.gauge.grade}</b>
-              </div>
-              <span class="badge ${tf.gauge.cls}">${tf.gauge.label}</span>
-              <p class="tiny" style="margin:0;">Score ${Math.round(tf.score)} | slope ${Math.round(tf.slope)}</p>
+              <span class="badge ${tf.candleRead.bias > 4 ? "buy" : tf.candleRead.bias < -4 ? "sell" : "wait"}">${tf.candleRead.label}</span>
               <div class="tf-detail">
-                <b>${tf.candleRead.label}</b>
+                <b>${tf.candleRead.detail}</b>
                 <span>O/H/L/C ${fmt(tf.candle.open, precision)} / ${fmt(tf.candle.high, precision)} / ${fmt(tf.candle.low, precision)} / ${fmt(tf.candle.close, precision)}</span>
-                <span>Support ${tf.structure.support?.name || "--"} ${fmt(tf.structure.support?.value, precision)} (${fmt(tf.structure.supportDistance, 1)}% TR)</span>
-                <span>Resistance ${tf.structure.resistance?.name || "--"} ${fmt(tf.structure.resistance?.value, precision)} (${fmt(tf.structure.resistanceDistance, 1)}% TR)</span>
-                <span>Trendline ${fmt(tf.structure.trendline?.value, precision)} (${signed(tf.structure.trendDistance, 1)}% TR)</span>
+                <span>Range ${fmt(tf.candle.range, precision)} | Body ${fmt(tf.candle.body, precision)}</span>
+                <span>Upper wick ${fmt(tf.candle.upper, precision)} | Lower wick ${fmt(tf.candle.lower, precision)}</span>
+                <span>Closed ${new Date(tf.candle.closedEnd).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</span>
               </div>
             </div>`).join("")}
           </div>
-        </div>
-        <div class="trend-grid">
-          <div class="trend-card"><span>Buying Score Trend</span><b>${model.trend.buyingScore}/100</b><p class="tiny" style="margin:6px 0 0;">Session score slope ${signed(model.trend.slope, 0)}</p></div>
-          <div class="trend-card"><span>Selling Score Trend</span><b>${model.trend.sellingScore}/100</b><p class="tiny" style="margin:6px 0 0;">Mirror of buyer control.</p></div>
-          <div class="trend-card"><span>Trend Exhaustion</span><b>${model.trend.exhaustion}/100</b><p class="tiny" style="margin:6px 0 0;">${model.trend.direction}</p></div>
-        </div>
-        <div class="mini-grid">
-          ${model.parts.slice(0, 6).map((part) => {
-            const val = Math.round(part[2]);
-            const cls = val >= 25 ? "buy" : val <= -25 ? "sell" : "info";
-            const barColor = val >= 25 ? "var(--green)" : val <= -25 ? "var(--red)" : "var(--blue)";
-            return `<div class="metric"><span>${part[0]}</span><b>${val}</b><div class="bar"><i style="width:${clamp((val + 100) / 2, 0, 100)}%; background:${barColor}"></i></div><p class="tiny" style="margin:8px 0 0;">${part[1]}</p></div>`;
-          }).join("")}
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Signal</th><th>Score</th><th>Reading</th><th>Use</th></tr></thead>
-            <tbody>
-              ${model.parts.map((part) => {
-                const val = Math.round(part[2]);
-                const cls = val >= 25 ? "buy" : val <= -25 ? "sell" : "wait";
-                return `<tr><td><b>${part[0]}</b></td><td><span class="badge ${cls}">${val}</span></td><td>${part[1]}</td><td>${part[3]}</td></tr>`;
-              }).join("")}
-            </tbody>
-          </table>
         </div>
       `;
       return div;
