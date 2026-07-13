@@ -1,0 +1,1726 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WDOFUT Intent Dashboard</title>
+  <style>
+    :root {
+      --bg: #f4f6f3;
+      --panel: #ffffff;
+      --ink: #1c2528;
+      --muted: #647174;
+      --line: #d8ded8;
+      --soft: #edf1ed;
+      --green: #16845a;
+      --red: #b23e3e;
+      --amber: #b7791f;
+      --blue: #2563a8;
+      --shadow: 0 12px 28px rgba(28, 37, 40, 0.08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(37, 99, 168, 0.08), rgba(22, 132, 90, 0.04) 34%, transparent 64%),
+        var(--bg);
+    }
+
+    button { font: inherit; }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+      padding: clamp(10px, 1.4vw, 16px);
+    }
+
+    .topbar,
+    .utility-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .utility-grid {
+      grid-template-columns: minmax(260px, 0.85fr) minmax(300px, 1fr) minmax(320px, 1.35fr);
+      align-items: start;
+    }
+
+    .utility-grid > .tiny { grid-column: 1 / -1; }
+
+    .brand {
+      border-radius: 8px;
+      background: var(--ink);
+      color: #fff;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: clamp(1.4rem, 2vw, 2rem);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .brand p, .tiny {
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 0.84rem;
+    }
+
+    .brand p { color: rgba(255, 255, 255, 0.72); margin-bottom: 0; }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .pad { padding: 14px; }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .grid > * { min-width: 0; }
+
+    .asset-grid {
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
+      align-items: start;
+    }
+
+    .context-grid {
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .section-title h2, .section-title h3 {
+      margin: 0;
+      font-size: 0.96rem;
+      letter-spacing: 0;
+    }
+
+    .stamp {
+      color: var(--muted);
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 0.8rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .buy { color: var(--green); background: rgba(22, 132, 90, 0.12); border-color: rgba(22, 132, 90, 0.25); }
+    .sell { color: var(--red); background: rgba(178, 62, 62, 0.12); border-color: rgba(178, 62, 62, 0.24); }
+    .wait { color: var(--amber); background: rgba(183, 121, 31, 0.13); border-color: rgba(183, 121, 31, 0.24); }
+    .info { color: var(--blue); background: rgba(37, 99, 168, 0.11); border-color: rgba(37, 99, 168, 0.22); }
+
+    .intent-stamp {
+      display: grid;
+      justify-items: end;
+      gap: 6px;
+      text-align: right;
+    }
+
+    .intent-topline {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .speedometer {
+      --angle: 0deg;
+      --gauge-color: var(--blue);
+      --arc-deg: 90deg;
+      position: relative;
+      width: clamp(230px, 24vw, 310px);
+      height: 172px;
+      display: grid;
+      place-items: end center;
+      padding: 18px 14px 16px;
+      border: 1px solid rgba(216, 222, 216, 0.9);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.96), rgba(247,249,247,0.98)),
+        var(--panel);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 10px 24px rgba(28, 37, 40, 0.07);
+      overflow: visible;
+    }
+
+    .speedometer::before {
+      content: "";
+      position: absolute;
+      left: 12%;
+      right: 12%;
+      bottom: 40px;
+      height: 58%;
+      border-radius: 999px 999px 0 0;
+      background:
+        radial-gradient(circle at 50% 100%, var(--panel) 0 52%, transparent 53%),
+        conic-gradient(from 270deg at 50% 100%,
+          #c83f67 0deg 36deg,
+          #d85a7a 36deg 72deg,
+          #e2e4e2 72deg 108deg,
+          #5fa2c8 108deg 144deg,
+          #16845a 144deg 180deg,
+          transparent 180deg);
+      box-shadow: inset 0 0 0 1px rgba(28, 37, 40, 0.04);
+      opacity: 0.38;
+    }
+
+    .speedometer::after {
+      content: none;
+      position: absolute;
+      left: 50%;
+      bottom: 42px;
+      width: 35%;
+      height: 4px;
+      background: linear-gradient(90deg, var(--ink), #0e1416);
+      transform-origin: 0 50%;
+      transform: rotate(var(--angle));
+      border-radius: 99px;
+      box-shadow: 0 1px 3px rgba(28, 37, 40, 0.28);
+      transition: transform 420ms cubic-bezier(.2,.8,.2,1);
+      z-index: 5;
+    }
+
+    .gauge-fill {
+      position: absolute;
+      left: 12%;
+      right: 12%;
+      bottom: 40px;
+      height: 58%;
+      border-radius: 999px 999px 0 0;
+      background:
+        radial-gradient(circle at 50% 100%, transparent 0 52%, var(--panel) 53% 58%, transparent 59%),
+        conic-gradient(from 270deg at 50% 100%, var(--gauge-color) 0deg var(--arc-deg), transparent var(--arc-deg) 180deg, transparent 180deg);
+      filter: saturate(1.15);
+      transition: background 420ms ease;
+      z-index: 2;
+    }
+
+    .gauge-ticks {
+      position: absolute;
+      left: 12%;
+      right: 12%;
+      bottom: 40px;
+      height: 58%;
+      border-radius: 999px 999px 0 0;
+      background: repeating-conic-gradient(from 270deg at 50% 100%, rgba(28,37,40,0.28) 0deg 1.2deg, transparent 1.2deg 18deg);
+      mask: radial-gradient(circle at 50% 100%, transparent 0 56%, #000 57% 62%, transparent 63%);
+      z-index: 3;
+      opacity: 0.55;
+    }
+
+    .gauge-pivot {
+      position: absolute;
+      left: 50%;
+      bottom: 34px;
+      width: 16px;
+      height: 16px;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      background: var(--ink);
+      border: 4px solid var(--panel);
+      box-shadow: 0 1px 6px rgba(28, 37, 40, 0.32);
+      z-index: 6;
+    }
+
+    .speedometer b {
+      position: relative;
+      z-index: 7;
+      min-width: 54px;
+      min-height: 30px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--gauge-color);
+      border: 1px solid var(--line);
+      font-size: 1.05rem;
+      font-weight: 900;
+      margin-bottom: 10px;
+      box-shadow: 0 6px 14px rgba(28, 37, 40, 0.08);
+    }
+
+    .gauge-label {
+      position: absolute;
+      z-index: 4;
+      color: #a4abad;
+      font-size: clamp(0.6rem, 0.82vw, 0.74rem);
+      font-weight: 800;
+      white-space: nowrap;
+      transition: color 180ms ease, transform 180ms ease;
+    }
+
+    .gauge-label.active { color: var(--gauge-color); transform: scale(1.04); }
+    .gauge-label.strong-sell { left: 4%; bottom: 56px; }
+    .gauge-label.sell { left: 10%; top: 58px; }
+    .gauge-label.wait { left: 50%; top: 22px; transform: translateX(-50%); }
+    .gauge-label.wait.active { transform: translateX(-50%) scale(1.04); }
+    .gauge-label.buy { right: 10%; top: 58px; }
+    .gauge-label.strong-buy { right: 4%; bottom: 56px; }
+
+    .gauge-caption {
+      position: absolute;
+      left: 50%;
+      bottom: 2px;
+      transform: translateX(-50%);
+      color: var(--gauge-color);
+      font-size: clamp(0.78rem, 1vw, 0.95rem);
+      font-weight: 900;
+      white-space: nowrap;
+      z-index: 7;
+    }
+    .hero-score {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: end;
+      gap: 16px;
+    }
+
+    .hero-score strong {
+      display: block;
+      font-size: clamp(3.2rem, 8vw, 5.4rem);
+      line-height: 0.9;
+      letter-spacing: 0;
+    }
+
+    .price-line {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      flex-wrap: wrap;
+      color: var(--muted);
+    }
+
+    .price-line b {
+      color: var(--ink);
+      font-size: 1.35rem;
+    }
+
+    .levels {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .level, .metric, .timeframe-card, .trend-card {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--soft);
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .level span, .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+      margin-bottom: 4px;
+    }
+
+    .level b, .metric b {
+      display: block;
+      overflow-wrap: anywhere;
+    }
+
+    .level-note {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .trade-plan {
+      display: grid;
+      gap: 10px;
+    }
+
+    .plan-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .plan-head h3 {
+      margin: 0;
+      font-size: 0.9rem;
+    }
+
+    .timeframe-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .timeframe-card {
+      display: grid;
+      gap: 8px;
+      justify-items: center;
+      text-align: center;
+    }
+
+    .timeframe-card h3 {
+      margin: 0;
+      font-size: 0.82rem;
+    }
+
+    .tf-detail {
+      width: 100%;
+      display: grid;
+      gap: 4px;
+      text-align: left;
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.3;
+    }
+
+    .tf-detail b {
+      color: var(--ink);
+      font-size: 0.74rem;
+    }
+
+    .mini-gauge {
+      --angle: 0deg;
+      --arc-deg: 90deg;
+      --gauge-color: var(--blue);
+      position: relative;
+      width: min(100%, 132px);
+      aspect-ratio: 1.7 / 1;
+      margin: 0 auto;
+    }
+
+    .mini-gauge::before,
+    .mini-gauge .mini-fill {
+      content: "";
+      position: absolute;
+      left: 4%;
+      right: 4%;
+      bottom: 16px;
+      height: 74%;
+      border-radius: 999px 999px 0 0;
+    }
+
+    .mini-gauge::before {
+      background:
+        radial-gradient(circle at 50% 100%, var(--soft) 0 54%, transparent 55%),
+        conic-gradient(from 270deg at 50% 100%, #c83f67 0deg 36deg, #d85a7a 36deg 72deg, #e2e4e2 72deg 108deg, #5fa2c8 108deg 144deg, #16845a 144deg 180deg, transparent 180deg);
+      opacity: 0.42;
+    }
+
+    .mini-gauge .mini-fill {
+      background:
+        radial-gradient(circle at 50% 100%, transparent 0 54%, var(--soft) 55% 61%, transparent 62%),
+        conic-gradient(from 270deg at 50% 100%, var(--gauge-color) 0deg var(--arc-deg), transparent var(--arc-deg) 180deg, transparent 180deg);
+      z-index: 2;
+    }
+
+    .mini-gauge::after {
+      content: none;
+      position: absolute;
+      left: 50%;
+      bottom: 18px;
+      width: 39%;
+      height: 3px;
+      border-radius: 999px;
+      background: var(--ink);
+      transform-origin: 0 50%;
+      transform: rotate(var(--angle));
+      z-index: 4;
+      box-shadow: 0 1px 3px rgba(28, 37, 40, 0.24);
+    }
+
+    .mini-gauge b {
+      position: absolute;
+      left: 50%;
+      bottom: 0;
+      transform: translateX(-50%);
+      min-width: 38px;
+      min-height: 24px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      color: var(--gauge-color);
+      font-size: 0.82rem;
+      z-index: 5;
+    }
+
+    .trend-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .trend-card b {
+      display: block;
+      font-size: 1.08rem;
+      margin-top: 3px;
+    }
+
+    .odds-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .manual-panel {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfcfa;
+      padding: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .manual-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .manual-actions button {
+      min-height: 34px;
+      font-size: 0.78rem;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 190px;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .bar {
+      height: 9px;
+      border-radius: 99px;
+      overflow: hidden;
+      background: #e4e8e2;
+      margin-top: 8px;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      width: 50%;
+      background: var(--blue);
+      border-radius: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 9px 8px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 800;
+      background: #fbfcfa;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .table-wrap table { min-width: 590px; }
+
+    .status-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .status-list li {
+      display: grid;
+      grid-template-columns: 9px 1fr;
+      gap: 9px;
+      color: var(--muted);
+      line-height: 1.4;
+      font-size: 0.84rem;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      margin-top: 5px;
+      background: var(--blue);
+    }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    button {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: #fff;
+    }
+
+    .raw {
+      max-height: 320px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfcfa;
+      padding: 10px;
+      font: 0.75rem/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 1180px) {
+      .utility-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .section-title { align-items: flex-start; }
+      .intent-stamp { justify-items: start; text-align: left; width: 100%; }
+      .intent-topline { justify-content: space-between; width: 100%; }
+      .speedometer { width: min(100%, 240px); }
+    }
+
+    @media (max-width: 620px) {
+      .app { padding: 10px; gap: 10px; }
+      .context-grid, .levels, .mini-grid, .button-row, .hero-score, .timeframe-grid, .trend-grid, .odds-grid { grid-template-columns: 1fr; }
+      .intent-topline { display: grid; justify-items: start; }
+      .speedometer { width: min(100%, 260px); }
+      canvas { height: 160px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <section class="brand">
+        <h1>WDOFUT Intent</h1>
+        <p>Near-real-time Profit DDE readings from Excel, focused on WDOFUT dollar futures intent.</p>
+      </section>
+    </header>
+
+    <main class="grid">
+      <section class="grid asset-grid" id="assetCards"></section>
+
+      <section class="grid context-grid" id="contextCards"></section>
+
+      <section class="panel pad">
+        <div class="section-title">
+          <h2>Cross-Asset Reading</h2>
+          <span class="stamp">WIN vs WDO</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>Intent</th>
+                <th>Price / VWAP</th>
+                <th>Aggression</th>
+                <th>Momentum</th>
+                <th>Best Use</th>
+              </tr>
+            </thead>
+            <tbody id="summaryRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <section class="utility-grid">
+      <section class="panel pad">
+        <div class="section-title">
+          <h2>Live Bridge</h2>
+          <span class="stamp" id="clock">--</span>
+        </div>
+        <div class="button-row">
+          <button class="primary" id="connectLive">Connect Live</button>
+          <button id="pauseLive">Pause</button>
+        </div>
+        <p class="tiny" id="liveStatus" style="margin: 10px 0 0;">Waiting for bridge at http://127.0.0.1:8765/api/quotes.</p>
+      </section>
+
+      <section class="panel pad">
+        <div class="section-title">
+          <h2>Trade Notes</h2>
+          <span class="badge info">model</span>
+        </div>
+        <ul class="status-list" id="globalNotes"></ul>
+      </section>
+
+      <section class="panel pad">
+        <div class="section-title">
+          <h2>Raw Snapshot</h2>
+          <span class="stamp">debug</span>
+        </div>
+        <div class="raw" id="rawJson">No live payload yet.</div>
+      </section>
+
+      <p class="tiny">Educational decision support only. This reads Profit/Excel DDE values but does not execute orders. Confirm tape, stops, liquidity, and your trading plan.</p>
+    </section>
+  </div>
+
+  <script>
+    const ASSETS = ["WDOFUT"];
+    const history = loadIntradayHistory();
+    const scoreHistory = { WINFUT: [], WDOFUT: [] };
+    const historicalMarket = { loaded: false, source: "local session", bias: 0, exhaustion: 0, details: [] };
+    const manualTrades = loadManualTrades();
+    const TIMEFRAMES = [
+      { key: "5m", label: "5 min", lookbackMs: 5 * 60 * 1000, weight: 1.15 },
+      { key: "15m", label: "15 min", lookbackMs: 15 * 60 * 1000, weight: 1.0 },
+      { key: "30m", label: "30 min", lookbackMs: 30 * 60 * 1000, weight: 0.86 },
+      { key: "1d", label: "Daily", lookbackMs: 6 * 60 * 60 * 1000, weight: 0.72 }
+    ];
+    const intentState = {};
+    let liveTimer = null;
+    let lastPayload = null;
+    let liveBusy = false;
+    let durationTimer = null;
+
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const score = (value, range) => clamp((value / range) * 100, -100, 100);
+    const fmt = (value, decimals = 0) => {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return "--";
+      return num.toLocaleString("en-US", { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
+    };
+    const signed = (value, decimals = 2) => {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return "--";
+      return `${num > 0 ? "+" : ""}${fmt(num, decimals)}`;
+    };
+
+    function num(row, key) {
+      if (!row) return null;
+      if (Number.isFinite(row[key])) return row[key];
+      const raw = row[key] ?? row[key.replaceAll("_", " ")] ?? row[key.toLowerCase()];
+      if (raw === null || raw === undefined || raw === "-") return null;
+      let text = String(raw).trim().replace(/\s/g, "");
+      if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(text)) text = text.replace(/,/g, "");
+      else if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(text)) text = text.replace(/\./g, "").replace(",", ".");
+      const parsed = Number(text);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function parsePair(row, key) {
+      const raw = String(row?.[key] || "");
+      const parts = raw.split("/").map((part) => num({ value: part }, "value"));
+      return { plus: parts[0] || 0, minus: parts[1] || 0 };
+    }
+
+    function pct(last, open) {
+      return Number.isFinite(last) && Number.isFinite(open) && open !== 0 ? ((last - open) / open) * 100 : 0;
+    }
+
+    function classify(total) {
+      if (total >= 62) return { label: "BUY INTENT", cls: "buy" };
+      if (total <= -62) return { label: "SELL INTENT", cls: "sell" };
+      return { label: "WAIT", cls: "wait" };
+    }
+
+    function recommendationGauge(total) {
+      const grade = clamp(Math.round(((total + 100) / 200) * 99 + 1), 1, 100);
+      const angle = -90 + ((grade - 1) / 99) * 180;
+      const arc = ((grade - 1) / 99) * 180;
+      const cls = grade <= 40 ? "sell" : grade >= 61 ? "buy" : "wait";
+      const band = grade <= 20 ? "strong-sell" : grade <= 40 ? "sell" : grade <= 60 ? "wait" : grade <= 80 ? "buy" : "strong-buy";
+      const label = grade <= 20 ? "Strong Sell" : grade <= 40 ? "Sell Bias" : grade <= 60 ? "Wait / Neutral" : grade <= 80 ? "Buy Bias" : "Strong Buy";
+      return { grade, angle, arc, cls, band, label };
+    }
+
+    function intradayStorageKey() {
+      const day = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+      return `dde-intraday-history-${day}`;
+    }
+
+    function loadIntradayHistory() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(intradayStorageKey()) || "{}");
+        const normalize = (rows) => (Array.isArray(rows) ? rows : []).map((point) => {
+          if (Number.isFinite(point?.price) && Number.isFinite(point?.t)) return point;
+          const price = Number(point);
+          return Number.isFinite(price) ? { t: Date.now(), price, score: 0 } : null;
+        }).filter(Boolean);
+        return { WINFUT: normalize(parsed.WINFUT), WDOFUT: normalize(parsed.WDOFUT) };
+      } catch {
+        return { WINFUT: [], WDOFUT: [] };
+      }
+    }
+
+    function saveIntradayHistory() {
+      try {
+        localStorage.setItem(intradayStorageKey(), JSON.stringify(history));
+      } catch {}
+    }
+
+    function marketOpenTime() {
+      const now = new Date();
+      const day = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      day.setHours(8, 55, 0, 0);
+      return day.getTime();
+    }
+
+    function loadManualTrades() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem("dde-manual-trades") || "{}");
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveManualTrades() {
+      try {
+        localStorage.setItem("dde-manual-trades", JSON.stringify(manualTrades));
+      } catch {}
+    }
+
+    function parseEntryPrice(text) {
+      return num({ value: text }, "value");
+    }
+
+    function parseContractQuantity(text) {
+      const value = Number(String(text || "").replace(/[^\d]/g, ""));
+      return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+    }
+
+    function roundedToTick(value, tick) {
+      if (!Number.isFinite(value)) return null;
+      return Math.round(value / tick) * tick;
+    }
+
+    function scoreWindow(asset, lookbackMs, now = Date.now()) {
+      const rows = (scoreHistory[asset] || []).filter((point) => now - point.t <= lookbackMs);
+      return rows.length ? rows : (scoreHistory[asset] || []).slice(-20);
+    }
+
+    function slopeFromScores(rows, currentScore) {
+      if (!rows.length) return 0;
+      const first = rows[0].score;
+      return clamp(currentScore - first, -45, 45);
+    }
+
+    function candleFromHistory(asset, lookbackMs, last, now = Date.now()) {
+      const openAt = marketOpenTime();
+      const elapsed = Math.max(0, now - openAt);
+      const closedEnd = openAt + Math.floor(elapsed / lookbackMs) * lookbackMs;
+      const closedStart = Math.max(openAt, closedEnd - lookbackMs);
+      let points = (history[asset] || []).filter((point) => point.t >= closedStart && point.t < closedEnd && Number.isFinite(point.price));
+      if (!points.length) {
+        points = (history[asset] || []).filter((point) => point.t < now && Number.isFinite(point.price)).slice(-Math.max(2, Math.min(40, Math.round(lookbackMs / 15000))));
+      }
+      const prices = points.map((point) => point.price);
+      if (!prices.length && Number.isFinite(last)) prices.push(last);
+      const open = prices[0] ?? last ?? 0;
+      const close = prices.at(-1) ?? last ?? open;
+      const high = Math.max(...prices, open, close);
+      const low = Math.min(...prices, open, close);
+      const range = Math.max(0.0001, high - low);
+      const body = Math.abs(close - open);
+      const upper = high - Math.max(open, close);
+      const lower = Math.min(open, close) - low;
+      return { open, high, low, close, range, body, upper, lower, points: prices.length, closedStart, closedEnd };
+    }
+
+    function trendlineFromHistory(asset, now = Date.now()) {
+      const points = (history[asset] || []).filter((point) => Number.isFinite(point.price) && point.t >= marketOpenTime()).slice(-180);
+      if (points.length < 3) return null;
+      const t0 = points[0].t;
+      const xs = points.map((point) => (point.t - t0) / 60000);
+      const ys = points.map((point) => point.price);
+      const xAvg = xs.reduce((sum, value) => sum + value, 0) / xs.length;
+      const yAvg = ys.reduce((sum, value) => sum + value, 0) / ys.length;
+      const denom = xs.reduce((sum, value) => sum + (value - xAvg) ** 2, 0) || 1;
+      const slope = xs.reduce((sum, value, index) => sum + (value - xAvg) * (ys[index] - yAvg), 0) / denom;
+      const intercept = yAvg - slope * xAvg;
+      return { value: intercept + slope * ((now - t0) / 60000), slope };
+    }
+
+    function nearestStructure(asset, last, trueRange, refs) {
+      const points = (history[asset] || []).filter((point) => point.t >= marketOpenTime() && Number.isFinite(point.price));
+      const prices = points.map((point) => point.price);
+      const trendline = trendlineFromHistory(asset);
+      const candidates = [
+        { name: "VWAP", value: refs.vwap },
+        { name: "HiLo", value: refs.hilo },
+        { name: "Day high", value: prices.length ? Math.max(...prices) : refs.high },
+        { name: "Day low", value: prices.length ? Math.min(...prices) : refs.low },
+        { name: "Recent high", value: prices.length ? Math.max(...prices.slice(-45)) : refs.high },
+        { name: "Recent low", value: prices.length ? Math.min(...prices.slice(-45)) : refs.low },
+        { name: "Trendline", value: trendline?.value }
+      ].filter((item) => Number.isFinite(item.value));
+      const supports = candidates.filter((item) => item.value <= last).sort((a, b) => b.value - a.value);
+      const resistances = candidates.filter((item) => item.value >= last).sort((a, b) => a.value - b.value);
+      const support = supports[0] || candidates.sort((a, b) => Math.abs(a.value - last) - Math.abs(b.value - last))[0];
+      const resistance = resistances[0] || support;
+      const range = Math.max(1, trueRange || 1);
+      const supportDistance = support ? ((last - support.value) / range) * 100 : null;
+      const resistanceDistance = resistance ? ((resistance.value - last) / range) * 100 : null;
+      const trendDistance = trendline ? ((last - trendline.value) / range) * 100 : null;
+      return { support, resistance, supportDistance, resistanceDistance, trendline, trendDistance };
+    }
+
+    function candleSignal(candle, total, structure) {
+      const bodyPct = candle.body / candle.range;
+      const upperPct = candle.upper / candle.range;
+      const lowerPct = candle.lower / candle.range;
+      const bullish = candle.close >= candle.open;
+      const nearSupport = Number.isFinite(structure.supportDistance) && structure.supportDistance <= 18;
+      const nearResistance = Number.isFinite(structure.resistanceDistance) && structure.resistanceDistance <= 18;
+      if (bodyPct < 0.18) return { label: "Indecision doji", bias: 0, detail: "wait for break" };
+      if (lowerPct > 0.48 && bullish && nearSupport) return { label: "Supported reversal", bias: 14, detail: "lower wick at support" };
+      if (upperPct > 0.48 && !bullish && nearResistance) return { label: "Resistance reversal", bias: -14, detail: "upper wick at resistance" };
+      if (bullish && total > 25 && candle.close > candle.open) return { label: "Buy confirmation", bias: 9, detail: "green body with score" };
+      if (!bullish && total < -25 && candle.close < candle.open) return { label: "Sell confirmation", bias: -9, detail: "red body with score" };
+      if (nearSupport && total >= 0) return { label: "Support hold", bias: 6, detail: "price near support" };
+      if (nearResistance && total <= 0) return { label: "Resistance hold", bias: -6, detail: "price near resistance" };
+      return { label: bullish ? "Bullish candle" : "Bearish candle", bias: bullish ? 3 : -3, detail: "weak confirmation" };
+    }
+
+    function buildTimeframes(asset, total, rowInputs) {
+      const now = Date.now();
+      return TIMEFRAMES.map((tf) => {
+        const rows = scoreWindow(asset, tf.lookbackMs, now);
+        const slope = slopeFromScores(rows, total);
+        const candle = candleFromHistory(asset, tf.lookbackMs, rowInputs.last, now);
+        const structure = nearestStructure(asset, rowInputs.last, rowInputs.trueRange, rowInputs);
+        const candleRead = candleSignal(candle, total, structure);
+        const structureBias = Number.isFinite(structure.trendDistance)
+          ? clamp(structure.trendDistance * 0.28, -8, 8)
+          : 0;
+        const oscillatorRisk = rowInputs.rsi > 72 || rowInputs.stochastic > 82 ? -10 : rowInputs.rsi < 28 || rowInputs.stochastic < 18 ? 10 : 0;
+        const exhaustionFade = Math.abs(total) > 72 ? -Math.sign(total) * Math.min(18, rowInputs.exhaustion * 0.24) : 0;
+        const historicalBias = tf.key === "1d" ? historicalMarket.bias * 0.45 : historicalMarket.bias * 0.16;
+        const adjusted = clamp(total * tf.weight + slope * 0.55 + oscillatorRisk + exhaustionFade + historicalBias + candleRead.bias + structureBias, -100, 100);
+        return { ...tf, score: adjusted, slope, gauge: recommendationGauge(adjusted), candle, candleRead, structure };
+      });
+    }
+
+    function planProfile(asset) {
+      const isWin = asset === "WINFUT";
+      return {
+        tick: isWin ? 5 : 0.5,
+        precision: isWin ? 0 : 1,
+        minRangeTicks: isWin ? 8 : 10,
+        partialMult: isWin ? 0.10 : 0.16,
+        target1Mult: isWin ? 0.23 : 0.31,
+        target2Mult: isWin ? 0.39 : 0.58,
+        stopMult: isWin ? 0.19 : 0.25,
+        stopStructureWeight: isWin ? 0.42 : 0.72
+      };
+    }
+
+    function structureAdjustedTarget(asset, stage, rawTarget, entry, direction, dayRange, structure, profile) {
+      const barrier = direction > 0 ? structure?.resistance?.value : structure?.support?.value;
+      if (!Number.isFinite(barrier)) return rawTarget;
+      const barrierMove = (barrier - entry) * direction;
+      const targetMove = (rawTarget - entry) * direction;
+      if (barrierMove <= profile.tick * 2 || targetMove <= 0 || barrierMove >= targetMove) return rawTarget;
+      const cushion = Math.max(profile.tick * 2, dayRange * 0.025);
+      if (asset === "WDOFUT" && stage === "target2") {
+        const extension = barrier + direction * Math.max(profile.tick * 4, dayRange * 0.12);
+        return rawTarget * 0.70 + extension * 0.30;
+      }
+      return barrier - direction * cushion;
+    }
+
+    function structureAdjustedStop(asset, rawStop, entry, direction, dayRange, structure, profile) {
+      const defensive = direction > 0 ? structure?.support?.value : structure?.resistance?.value;
+      let stop = rawStop;
+      if (Number.isFinite(defensive)) {
+        const cushion = Math.max(profile.tick * 2, dayRange * (asset === "WDOFUT" ? 0.035 : 0.025));
+        const candidate = defensive - direction * cushion;
+        const candidateRisk = Math.abs(entry - candidate);
+        const minRisk = Math.max(profile.tick * 3, dayRange * (asset === "WDOFUT" ? 0.16 : 0.13));
+        const maxRisk = Math.max(profile.tick * 6, dayRange * (asset === "WDOFUT" ? 0.42 : 0.32));
+        if (candidateRisk >= minRisk && candidateRisk <= maxRisk) {
+          stop = rawStop * (1 - profile.stopStructureWeight) + candidate * profile.stopStructureWeight;
+        }
+      }
+      const minRisk = Math.max(profile.tick * 3, dayRange * (asset === "WDOFUT" ? 0.16 : 0.13));
+      const maxRisk = Math.max(profile.tick * 6, dayRange * (asset === "WDOFUT" ? 0.42 : 0.32));
+      const risk = clamp(Math.abs(entry - stop), minRisk, maxRisk);
+      return entry - direction * risk;
+    }
+
+    function enforceProfitMove(level, entry, direction, minMove) {
+      const currentMove = (level - entry) * direction;
+      return currentMove >= minMove ? level : entry + direction * minMove;
+    }
+
+    function buildPlanLevels(asset, side, entryInput, trueRange, refs = {}) {
+      const profile = planProfile(asset);
+      const dayRange = Math.max(profile.tick * profile.minRangeTicks, trueRange || profile.tick * 20);
+      const sideRoot = side.startsWith("SELL") ? "SELL" : "BUY";
+      const direction = sideRoot === "SELL" ? -1 : 1;
+      const entry = roundedToTick(entryInput, profile.tick);
+      const structure = nearestStructure(asset, entry, dayRange, refs);
+      let partial = entry + direction * dayRange * profile.partialMult;
+      let target1 = entry + direction * dayRange * profile.target1Mult;
+      let target2 = entry + direction * dayRange * profile.target2Mult;
+      partial = structureAdjustedTarget(asset, "partial", partial, entry, direction, dayRange, structure, profile);
+      target1 = structureAdjustedTarget(asset, "target1", target1, entry, direction, dayRange, structure, profile);
+      target2 = structureAdjustedTarget(asset, "target2", target2, entry, direction, dayRange, structure, profile);
+      const minStep = Math.max(profile.tick * 2, dayRange * 0.045);
+      const partialMin = Math.max(profile.tick * 2, dayRange * (asset === "WINFUT" ? 0.075 : 0.10));
+      const target1Min = Math.max(partialMin + minStep, dayRange * (asset === "WINFUT" ? 0.18 : 0.22));
+      const target2Min = Math.max(target1Min + minStep, dayRange * (asset === "WINFUT" ? 0.30 : 0.38));
+      partial = roundedToTick(enforceProfitMove(partial, entry, direction, partialMin), profile.tick);
+      target1 = roundedToTick(enforceProfitMove(target1, entry, direction, target1Min), profile.tick);
+      target2 = roundedToTick(enforceProfitMove(target2, entry, direction, target2Min), profile.tick);
+      const rawStop = entry - direction * dayRange * profile.stopMult;
+      const stop = roundedToTick(structureAdjustedStop(asset, rawStop, entry, direction, dayRange, structure, profile), profile.tick);
+      return { side, entry, partial, target1, target2, stop, precision: profile.precision };
+    }
+
+    function buildTradePlan(modelInputs) {
+      const { asset, last, high, low, trueRange, vwap, hilo, total, intent } = modelInputs;
+      const profile = planProfile(asset);
+      const side = intent.label === "SELL INTENT" ? "SELL" : intent.label === "BUY INTENT" ? "BUY" : total >= 0 ? "BUY WATCH" : "SELL WATCH";
+      const dayRange = Math.max(profile.tick * profile.minRangeTicks, trueRange || profile.tick * 20);
+      const longAnchor = Math.max(vwap || 0, hilo || 0, (last || 0) - dayRange * 0.08);
+      const shortAnchor = Math.min(vwap || Infinity, hilo || Infinity, (last || 0) + dayRange * 0.08);
+      const longEntryBase = Math.max(low || last || 0, Math.min(last || 0, longAnchor));
+      const shortEntryBase = Math.min(high || last || 0, Math.max(last || 0, shortAnchor));
+      const entry = side.startsWith("SELL") ? shortEntryBase : longEntryBase;
+      return buildPlanLevels(asset, side, entry, trueRange, { last, high, low, vwap, hilo });
+    }
+
+    function buildPlanFromEntry(asset, side, entry, modelContext) {
+      return buildPlanLevels(asset, side, entry, modelContext.trueRange, modelContext);
+    }
+
+    function manualOperationLikelihood(model, plan, progress, stopped, hitPartial, hitTarget1, hitTarget2) {
+      const direction = plan.side === "SELL" ? -1 : 1;
+      const agreement = model.timeframes.length
+        ? model.timeframes.filter((tf) => Math.sign(tf.score) === direction || Math.abs(tf.score) < 14).length / model.timeframes.length
+        : 0.5;
+      const structure = nearestStructure(model.asset, plan.entry, model.trueRange, model);
+      const nearSupport = Number.isFinite(structure.supportDistance) ? clamp(24 - structure.supportDistance, -12, 24) : 0;
+      const nearResistance = Number.isFinite(structure.resistanceDistance) ? clamp(24 - structure.resistanceDistance, -12, 24) : 0;
+      const structureScore = direction > 0 ? nearSupport - nearResistance * 0.45 : nearResistance - nearSupport * 0.45;
+      const rr = Math.abs(plan.target1 - plan.entry) / Math.max(1, Math.abs(plan.entry - plan.stop));
+      const rrScore = clamp((rr - 1) * 22, -12, 20);
+      const stateBoost = hitTarget2 ? 34 : hitTarget1 ? 24 : hitPartial ? 14 : clamp(progress * 0.13, -18, 16);
+      const oppositePenalty = model.intent.cls === (direction > 0 ? "sell" : "buy") ? 13 : 0;
+      const exhaustionPenalty = Math.max(0, (model.trend?.exhaustion || 0) - 70) * 0.16;
+      const raw = 50 + model.total * direction * 0.20 + (agreement - 0.5) * 28 + structureScore * 0.45 + rrScore + stateBoost - oppositePenalty - exhaustionPenalty;
+      const win = stopped ? 1 : hitTarget2 ? 98 : clamp(Math.round(raw), 1, 100);
+      return { win, loss: clamp(100 - win, 1, 100), rr };
+    }
+
+    function contractPlan(quantity) {
+      const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+      if (qty === 1) return { quantity: qty, partial: 0, target1: 0, target2: 1, note: "1 contract: manage with stop/trailing; no partial exits available." };
+      if (qty === 2) return { quantity: qty, partial: 1, target1: 0, target2: 1, note: "2 contracts: take 1 at partial and let 1 run with the trailing stop." };
+      const partial = Math.max(1, Math.floor(qty * 0.45));
+      const target1 = Math.max(1, Math.floor(qty * 0.30));
+      const target2 = Math.max(1, qty - partial - target1);
+      return { quantity: qty, partial, target1, target2, note: "Suggested split: reduce risk at partial, realize more at target 1, trail the runner to target 2." };
+    }
+
+    function buildManualTracker(model) {
+      const saved = manualTrades[model.asset];
+      if (!saved || !Number.isFinite(saved.entry) || !["BUY", "SELL"].includes(saved.side)) return null;
+      const plan = buildPlanFromEntry(model.asset, saved.side, saved.entry, model);
+      const contracts = contractPlan(saved.quantity);
+      const isShort = plan.side === "SELL";
+      const tick = model.asset === "WINFUT" ? 5 : 0.5;
+      const move = (model.last - plan.entry) * (isShort ? -1 : 1);
+      const risk = Math.abs(plan.entry - plan.stop) || 1;
+      const progress = clamp((move / risk) * 100, -100, 220);
+      const stopped = isShort ? model.last >= plan.stop : model.last <= plan.stop;
+      const hitTarget2 = isShort ? model.last <= plan.target2 : model.last >= plan.target2;
+      const hitTarget1 = isShort ? model.last <= plan.target1 : model.last >= plan.target1;
+      const hitPartial = isShort ? model.last <= plan.partial : model.last >= plan.partial;
+      const against = progress < -35 || (model.intent.cls === (isShort ? "buy" : "sell") && Math.abs(model.total) > 35);
+      const action = stopped ? "STOP" : hitTarget2 ? "FULL REALIZATION" : hitTarget1 ? "REALIZE MORE / TRAIL" : hitPartial ? "PARTIAL REALIZATION" : against ? "REDUCE OR STOP IF CONFIRMED" : "HOLD";
+      const cls = stopped || against ? "sell" : hitPartial || hitTarget1 || hitTarget2 ? "buy" : "info";
+      const candle = model.timeframes[0]?.candle || {};
+      const trailCandidates = isShort
+        ? [plan.entry, candle.high, model.hilo, model.vwap, model.last + risk * 0.55].filter((value) => Number.isFinite(value) && value > model.last)
+        : [plan.entry, candle.low, model.hilo, model.vwap, model.last - risk * 0.55].filter((value) => Number.isFinite(value) && value < model.last);
+      let trailingStop = plan.stop;
+      let trailingStage = "Initial risk";
+      let trailingText = "Before partial: keep the planned stop unless the setup invalidates.";
+      const priorTrailingStop = Number(saved.trailingStop);
+      const hasPriorTrail = Number.isFinite(priorTrailingStop);
+      const hasLockedTrail = hasPriorTrail && (isShort ? priorTrailingStop < plan.stop : priorTrailingStop > plan.stop);
+      if (hitPartial || hitTarget1 || hitTarget2) {
+        trailingStage = hitTarget1 || hitTarget2 ? "Trail after target 1" : "Breakeven after partial";
+        const structureStop = trailCandidates.length ? (isShort ? Math.min(...trailCandidates) : Math.max(...trailCandidates)) : plan.entry;
+        const protectedStop = isShort ? Math.min(plan.entry, structureStop) : Math.max(plan.entry, structureStop);
+        trailingStop = roundedToTick(protectedStop, tick);
+        trailingText = hitTarget1 || hitTarget2
+          ? "After target 1: trail behind the last closed 5m candle, HiLo/VWAP, or trendline; avoid giving back more than the locked gain."
+          : "After partial: move stop to breakeven or the nearest valid structure once price accepts beyond partial.";
+      } else if (hasLockedTrail) {
+        trailingStage = "Locked trail";
+        trailingText = "Trailing stop is locked from a prior favorable move; it will only tighten, never loosen.";
+      }
+      if (hasPriorTrail) {
+        trailingStop = roundedToTick(isShort ? Math.min(trailingStop, priorTrailingStop) : Math.max(trailingStop, priorTrailingStop), tick);
+      }
+      if (!hasPriorTrail || Math.abs(trailingStop - priorTrailingStop) >= tick * 0.5) {
+        manualTrades[model.asset] = { ...saved, trailingStop };
+        saveManualTrades();
+      }
+      const likelihood = manualOperationLikelihood(model, plan, progress, stopped, hitPartial, hitTarget1, hitTarget2);
+      return { ...plan, action, cls, progress: Math.round(progress), openedAt: saved.openedAt, contracts, trailingStop, trailingStage, trailingText, winLikelihood: likelihood.win, lossLikelihood: likelihood.loss, rr: likelihood.rr };
+    }
+
+    function operationOdds(total, timeframes, trend) {
+      const agreement = timeframes.length
+        ? timeframes.filter((tf) => Math.sign(tf.score) === Math.sign(total) || Math.abs(tf.score) < 18).length / timeframes.length
+        : 0.5;
+      const strength = Math.abs(total);
+      const exhaustionPenalty = Math.max(0, trend.exhaustion - 62) * 0.45;
+      const gain = clamp(Math.round(50 + strength * 0.34 + agreement * 18 - exhaustionPenalty), 1, 100);
+      return { gain, loss: clamp(100 - gain, 1, 100) };
+    }
+
+    function ema(values, period) {
+      if (!values.length) return null;
+      const k = 2 / (period + 1);
+      return values.reduce((avg, value, index) => index ? value * k + avg * (1 - k) : value, values[0]);
+    }
+
+    function microTrendEdge(asset, last, trueRange) {
+      const prices = (history[asset] || []).filter((point) => point.t >= marketOpenTime() && Number.isFinite(point.price)).map((point) => point.price).slice(-120);
+      const fast = ema(prices, 9);
+      const slow = ema(prices, 21);
+      const distance = Number.isFinite(fast) && Number.isFinite(slow) ? fast - slow : 0;
+      return { fast, slow, score: score(distance, Math.max(1, trueRange * 0.18)), reading: distance >= 0 ? "EMA9 above EMA21" : "EMA9 below EMA21" };
+    }
+
+    function openingRangeEdge(asset, last, trueRange, direction) {
+      const openAt = marketOpenTime();
+      const points = (history[asset] || []).filter((point) => point.t >= openAt && point.t <= openAt + 30 * 60 * 1000 && Number.isFinite(point.price));
+      if (points.length < 2) return { score: 0, reading: "opening range building" };
+      const prices = points.map((point) => point.price);
+      const high = Math.max(...prices);
+      const low = Math.min(...prices);
+      const breakout = direction >= 0 ? last - high : low - last;
+      return { high, low, score: score(breakout, Math.max(1, trueRange * 0.22)), reading: direction >= 0 ? "distance to opening high" : "distance to opening low" };
+    }
+
+    function buildEntryEdge(model) {
+      const direction = model.plan.side.startsWith("BUY") ? 1 : -1;
+      const agreement = model.timeframes.length ? model.timeframes.filter((tf) => Math.sign(tf.score) === direction || Math.abs(tf.score) < 12).length / model.timeframes.length : 0.5;
+      const structure = model.timeframes[0]?.structure || {};
+      const nearSupport = Number.isFinite(structure.supportDistance) ? clamp(22 - structure.supportDistance, -12, 22) : 0;
+      const nearResistance = Number.isFinite(structure.resistanceDistance) ? clamp(22 - structure.resistanceDistance, -12, 22) : 0;
+      const structureScore = direction > 0 ? nearSupport - nearResistance * 0.45 : nearResistance - nearSupport * 0.45;
+      const rr = Math.abs(model.plan.target1 - model.plan.entry) / Math.max(1, Math.abs(model.plan.entry - model.plan.stop));
+      const rrScore = clamp((rr - 1) * 28, -15, 24);
+      const micro = microTrendEdge(model.asset, model.last, model.trueRange);
+      const opening = openingRangeEdge(model.asset, model.last, model.trueRange, direction);
+      const historicalBias = (model.asset === "WINFUT" ? historicalMarket.bias : -historicalMarket.bias * 0.75) * direction;
+      const volatilityPenalty = (historicalMarket.volatility || 0) * 0.22 + (historicalMarket.exhaustion || 0) * 0.18;
+      const raw = 50 + model.total * direction * 0.24 + (agreement - 0.5) * 34 + structureScore + rrScore + micro.score * direction * 0.16 + opening.score * 0.12 + historicalBias * 0.32 - volatilityPenalty;
+      const value = clamp(Math.round(raw), 1, 100);
+      const cls = value >= 68 ? "buy" : value <= 42 ? "sell" : "wait";
+      const label = value >= 78 ? "A setup" : value >= 68 ? "Good entry" : value >= 52 ? "Playable" : value >= 43 ? "Low edge" : "Avoid";
+      return {
+        value,
+        cls,
+        label,
+        rr,
+        components: [
+          ["Signal", Math.round(model.total * direction), "live score in trade direction"],
+          ["Timeframes", Math.round(agreement * 100), "multi-timeframe agreement"],
+          ["Structure", Math.round(structureScore), "support/resistance location"],
+          ["EMA/OR", Math.round((micro.score * direction + opening.score) / 2), `${micro.reading}; ${opening.reading}`],
+          ["Historical", Math.round(historicalBias), historicalMarket.loaded ? "past-day cross-market bias" : "local session fallback"],
+          ["Risk/Reward", Math.round(rrScore), `R:R ${fmt(rr, 2)}`]
+        ]
+      };
+    }
+
+    function scoreTrendStats(asset, currentScore) {
+      const rows = (scoreHistory[asset] || []).slice(-60);
+      const slope = slopeFromScores(rows, currentScore);
+      const buyingScore = clamp(Math.round((currentScore + 100) / 2), 0, 100);
+      const sellingScore = clamp(100 - buyingScore, 0, 100);
+      const acceleration = rows.length > 6 ? currentScore - rows[Math.max(0, rows.length - 6)].score : 0;
+      const exhaustion = clamp(Math.abs(currentScore) * 0.62 + Math.abs(slope) * 0.45 + historicalMarket.exhaustion * 0.35, 0, 100);
+      const direction = acceleration < -8 && currentScore > 35 ? "buyer fatigue" : acceleration > 8 && currentScore < -35 ? "seller fatigue" : exhaustion > 72 ? "exhaustion watch" : "trend stable";
+      return { buyingScore, sellingScore, exhaustion: Math.round(exhaustion), direction, slope: Math.round(slope) };
+    }
+
+    function parseHistoricalCsv(text) {
+      const rows = text.trim().split(/\r?\n/).slice(1).map((line) => line.split(","));
+      const candles = rows.map((row) => ({
+        open: Number(row[1]),
+        high: Number(row[2]),
+        low: Number(row[3]),
+        close: Number(row[4])
+      })).filter((row) => [row.open, row.high, row.low, row.close].every(Number.isFinite));
+      const closes = candles.map((row) => row.close);
+      if (closes.length < 22) return null;
+      const last = closes.at(-1);
+      const prev = closes.at(-6) || closes[0];
+      const month = closes.at(-22) || closes[0];
+      const prior = candles.at(-2) || candles.at(-1);
+      const atrRows = candles.slice(-14);
+      const atrPct = (atrRows.reduce((sum, row) => sum + ((row.high - row.low) / Math.max(1, row.close)) * 100, 0) / atrRows.length) || 0;
+      return { day1: ((last - prior.close) / prior.close) * 100, day5: ((last - prev) / prev) * 100, day22: ((last - month) / month) * 100, priorHigh: prior.high, priorLow: prior.low, priorClose: prior.close, atrPct };
+    }
+
+    async function loadHistoricalContext() {
+      const sources = [
+        ["Bovespa", "https://stooq.com/q/d/l/?s=^bvsp&i=d"],
+        ["Nasdaq", "https://stooq.com/q/d/l/?s=^ndq&i=d"],
+        ["S&P 500", "https://stooq.com/q/d/l/?s=^spx&i=d"],
+        ["DXY", "https://stooq.com/q/d/l/?s=dx.f&i=d"],
+        ["Brent", "https://stooq.com/q/d/l/?s=brn.f&i=d"]
+      ];
+      const settled = await Promise.allSettled(sources.map(async ([name, url]) => {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error(`${name} ${res.status}`);
+        const parsed = parseHistoricalCsv(await res.text());
+        if (!parsed) throw new Error(`${name} missing history`);
+        return { name, ...parsed };
+      }));
+      const details = settled.filter((item) => item.status === "fulfilled").map((item) => item.value);
+      if (!details.length) return;
+      const riskBias = details.reduce((sum, item) => {
+        const sign = item.name === "DXY" ? -1 : 1;
+        return sum + sign * clamp(item.day22, -8, 8);
+      }, 0) / details.length;
+      historicalMarket.loaded = true;
+      historicalMarket.source = "Stooq daily history";
+      historicalMarket.bias = clamp(riskBias * 8, -35, 35);
+      historicalMarket.exhaustion = clamp(details.reduce((sum, item) => sum + Math.abs(item.day5), 0) / details.length * 8, 0, 35);
+      historicalMarket.volatility = clamp(details.reduce((sum, item) => sum + (item.atrPct || 0), 0) / details.length * 10, 0, 40);
+      historicalMarket.details = details;
+      if (lastPayload) renderFromPayload(lastPayload);
+    }
+
+    function formatDuration(ms) {
+      const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+      if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+      return `${seconds}s`;
+    }
+
+    function updateIntentState(model, now = Date.now()) {
+      const previous = intentState[model.asset];
+      if (!previous || previous.label !== model.intent.label) {
+        intentState[model.asset] = {
+          label: model.intent.label,
+          cls: model.intent.cls,
+          since: now,
+          sinceText: new Date(now).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+        };
+      }
+      model.intentSince = intentState[model.asset];
+      return model;
+    }
+
+    function refreshIntentDurations() {
+      const now = Date.now();
+      document.querySelectorAll("[data-intent-duration]").forEach((node) => {
+        const asset = node.getAttribute("data-intent-duration");
+        const state = intentState[asset];
+        if (!state) return;
+        node.textContent = `since ${state.sinceText} (${formatDuration(now - state.since)})`;
+      });
+    }
+
+    function buildAsset(row, peerRow) {
+      const last = num(row, "last");
+      const open = num(row, "open");
+      const high = num(row, "high");
+      const low = num(row, "low");
+      const trueRange = num(row, "true_range") || Math.max(1, (high || last) - (low || last));
+      const vwap = num(row, "vwap");
+      const vwapWeekly = num(row, "vwap_weekly");
+      const vwapMonthly = num(row, "vwap_monthly");
+      const hilo = num(row, "hilo_activator");
+      const rsi = num(row, "rsi");
+      const stochastic = num(row, "slow_stochastic_oscilator");
+      const smi = num(row, "stochastic_momentum_index");
+      const stochRsi = num(row, "stochastic_rsi");
+      const momentum = num(row, "momentum");
+      const priceOsc = num(row, "price_oscillator");
+      const cmf = num(row, "chaikin_money_flow");
+      const mfi = num(row, "money_flow_index");
+      const moneyFlow = num(row, "money_flow");
+      const accDist = num(row, "acumulation_distribuition");
+      const buyAgg = num(row, "tr_aggression_volume_buy");
+      const sellAgg = num(row, "tr_aggression_volume_sell");
+      const aggBalance = num(row, "tr_aggression_volume_balance") || num(row, "tr_cumulative_aggression_balance");
+      const dmi = parsePair(row, "DI+/DI-");
+      const change = pct(last, open);
+      const peerChange = pct(num(peerRow, "last"), num(peerRow, "open"));
+      const asset = row?.asset || row?.Asset || "ASSET";
+      const isWin = asset === "WINFUT";
+
+      const aggressionDenom = Math.max(1, Math.abs(buyAgg || 0) + Math.abs(sellAgg || 0));
+      const aggressionPct = ((aggBalance || 0) / aggressionDenom) * 100;
+      const vwapDistance = last && vwap ? last - vwap : 0;
+      const weeklyDistance = last && vwapWeekly ? last - vwapWeekly : 0;
+      const monthlyDistance = last && vwapMonthly ? last - vwapMonthly : 0;
+      const hiloDistance = last && hilo ? last - hilo : 0;
+      const peerLean = isWin ? -peerChange : -peerChange * 0.35;
+
+      const parts = [
+        ["Price action", `${signed(change)}% from open`, score(change, 1.2), "Current session direction."],
+        ["VWAP stack", `VWAP ${fmt(vwap, isWin ? 0 : 3)}, W ${fmt(vwapWeekly, isWin ? 0 : 3)}, M ${fmt(vwapMonthly, isWin ? 0 : 3)}`, score(vwapDistance / trueRange + weeklyDistance / trueRange * 0.5 + monthlyDistance / trueRange * 0.3, 1.6), "Above VWAPs favors buyer control; below favors sellers."],
+        ["HiLo trend", `HiLo ${fmt(hilo, isWin ? 0 : 3)}, dist ${signed(hiloDistance, isWin ? 0 : 1)}`, score(hiloDistance, trueRange * 0.9), "Trend activator from Profit."],
+        ["Aggression", `Bal ${signed(aggBalance, 0)}, Buy ${fmt(buyAgg, 0)}, Sell ${fmt(sellAgg, 0)}`, score(aggressionPct, 6), "Buy vs sell aggression imbalance."],
+        ["Money flow", `CMF ${signed(cmf, 2)}, MFI ${fmt(mfi, 1)}, A/D ${signed(accDist, 0)}`, clamp(score((cmf || 0) * 100, 20) * 0.42 + score((mfi || 50) - 50, 22) * 0.36 + score(accDist || 0, isWin ? 900000 : 90000) * 0.22, -100, 100), "Whether volume is supporting the move."],
+        ["Momentum", `Mom ${signed(momentum, isWin ? 0 : 1)}, Osc ${signed(priceOsc, 2)}, SMI ${signed(smi, 1)}`, clamp(score(momentum || 0, trueRange * 0.9) * 0.45 + score(priceOsc || 0, 0.8) * 0.25 + score(smi || 0, 60) * 0.30, -100, 100), "Impulse and oscillator confirmation."],
+        ["RSI/Stochastic", `RSI ${fmt(rsi, 1)}, Stoch ${fmt(stochastic, 1)}, StochRSI ${fmt(stochRsi, 2)}`, clamp(score((rsi || 50) - 50, 24) * 0.35 + score((stochastic || 50) - 50, 38) * 0.45 + score(((stochRsi || 0.5) - 0.5) * 100, 50) * 0.20, -100, 100), "Timing and exhaustion risk."],
+        ["DI pressure", `DI+ ${fmt(dmi.plus, 1)} / DI- ${fmt(dmi.minus, 1)}`, score(dmi.plus - dmi.minus, 14), "Directional movement balance."],
+        ["Cross-market", isWin ? `WDO change ${signed(peerChange)}%` : `WIN change ${signed(peerChange)}%`, score(peerLean, 1.1), isWin ? "Falling dollar usually helps index futures; rising dollar pressures it." : "Strong index risk appetite can cap dollar futures."]
+      ];
+
+      const weights = [0.12, 0.16, 0.12, 0.20, 0.13, 0.11, 0.07, 0.05, 0.04];
+      const total = parts.reduce((sum, part, index) => sum + part[2] * weights[index], 0);
+      const intent = classify(total);
+      const gauge = recommendationGauge(total);
+      const exhaustionInput = Math.max(Math.abs((rsi || 50) - 50), Math.abs((stochastic || 50) - 50), Math.abs(smi || 0) * 0.4);
+      const timeframes = buildTimeframes(asset, total, { rsi: rsi || 50, stochastic: stochastic || 50, exhaustion: exhaustionInput, last, high, low, trueRange, vwap, hilo });
+      const buyZone = Math.round(Math.max(low || last, (last || 0) - trueRange * 0.22) / (isWin ? 5 : 0.5)) * (isWin ? 5 : 0.5);
+      const sellZone = Math.round(Math.min(high || last, (last || 0) + trueRange * 0.22) / (isWin ? 5 : 0.5)) * (isWin ? 5 : 0.5);
+      const invalidation = intent.label === "SELL INTENT" ? sellZone + trueRange * 0.35 : buyZone - trueRange * 0.35;
+      const plan = buildTradePlan({ asset, last, high, low, trueRange, vwap, hilo, total, intent });
+      const trend = scoreTrendStats(asset, total);
+      const odds = operationOdds(total, timeframes, trend);
+
+      const model = { asset, row, last, open, high, low, trueRange, vwap, hilo, change, parts, total, intent, gauge, timeframes, plan, trend, odds, buyZone, sellZone, invalidation, aggressionPct };
+      model.entryEdge = buildEntryEdge(model);
+      model.manual = buildManualTracker(model);
+      return model;
+    }
+
+    function drawChart(canvas, values, color) {
+      const ctx = canvas.getContext("2d");
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.round(rect.width * dpr));
+      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+      ctx.scale(dpr, dpr);
+      const w = rect.width, h = rect.height;
+      ctx.clearRect(0, 0, w, h);
+      const pad = { left: 46, right: 14, top: 22, bottom: 28 };
+      const openAt = marketOpenTime();
+      const now = Date.now();
+      const points = (values || []).filter((point) => Number.isFinite(point?.price) && Number.isFinite(point?.t) && point.t >= openAt);
+      const series = points.length > 1 ? points : [
+        { t: openAt, price: points[0]?.price || 0, score: 0 },
+        { t: now, price: points[0]?.price || 0, score: 0 }
+      ];
+      const prices = series.map((point) => point.price);
+      const min = Math.min(...prices), max = Math.max(...prices);
+      const span = max - min || 1;
+      const endAt = Math.max(now, series.at(-1)?.t || now, openAt + 60 * 60 * 1000);
+      const x = (t) => pad.left + clamp((t - openAt) / Math.max(1, endAt - openAt), 0, 1) * (w - pad.left - pad.right);
+      const y = (v) => pad.top + (1 - ((v - min) / span)) * (h - pad.top - pad.bottom);
+      ctx.strokeStyle = "#d8ded8";
+      ctx.fillStyle = "#647174";
+      ctx.font = "12px Inter, sans-serif";
+      ctx.fillText("Today from 08:55 BRT", pad.left, 13);
+      for (let i = 0; i < 3; i++) {
+        const yy = pad.top + i * ((h - pad.top - pad.bottom) / 2);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, yy);
+        ctx.lineTo(w - pad.right, yy);
+        ctx.stroke();
+        ctx.fillText(fmt(max - (i / 2) * span, max > 10000 ? 0 : 1), 4, yy + 4);
+      }
+      ctx.fillText("08:55", pad.left, h - 8);
+      ctx.fillText(new Date(endAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }), Math.max(pad.left, w - 58), h - 8);
+      ctx.lineWidth = 2.5;
+      for (let i = 1; i < series.length; i++) {
+        const prev = series[i - 1];
+        const point = series[i];
+        const segmentScore = (prev.score + point.score) / 2;
+        ctx.strokeStyle = segmentScore >= 62 ? "#16845a" : segmentScore <= -62 ? "#b23e3e" : "#b7791f";
+        ctx.beginPath();
+        ctx.moveTo(x(prev.t), y(prev.price));
+        ctx.lineTo(x(point.t), y(point.price));
+        ctx.stroke();
+      }
+    }
+
+    function renderAssetCard(model) {
+      const div = document.createElement("article");
+      div.className = "panel intent-card";
+      const color = model.intent.cls === "buy" ? "var(--green)" : model.intent.cls === "sell" ? "var(--red)" : "var(--blue)";
+      const precision = model.asset === "WINFUT" ? 0 : 1;
+      div.innerHTML = `
+        <div class="section-title">
+          <h2>${model.asset}</h2>
+          <div class="intent-stamp">
+            <div class="intent-topline">
+              <span class="badge ${model.intent.cls}">${model.intent.label}</span>
+              <div class="speedometer" title="Recommendation score: 1 strong sell, 50 wait, 100 strong buy" style="--angle:${model.gauge.angle}deg; --arc-deg:${model.gauge.arc}deg; --gauge-color:var(--${model.gauge.cls === "buy" ? "green" : model.gauge.cls === "sell" ? "red" : "amber"})">
+                <span class="gauge-fill"></span>
+                <span class="gauge-ticks"></span>
+                <span class="gauge-pivot"></span>
+                <span class="gauge-label strong-sell ${model.gauge.band === "strong-sell" ? "active" : ""}">Strong sell</span>
+                <span class="gauge-label sell ${model.gauge.band === "sell" ? "active" : ""}">Sell bias</span>
+                <span class="gauge-label wait ${model.gauge.band === "wait" ? "active" : ""}">Wait</span>
+                <span class="gauge-label buy ${model.gauge.band === "buy" ? "active" : ""}">Buy bias</span>
+                <span class="gauge-label strong-buy ${model.gauge.band === "strong-buy" ? "active" : ""}">Strong buy</span>
+                <b>${model.gauge.grade}</b>
+                <span class="gauge-caption">${model.gauge.label}</span>
+              </div>
+            </div>
+            <span class="stamp" data-intent-duration="${model.asset}">since ${model.intentSince.sinceText} (${formatDuration(Date.now() - model.intentSince.since)})</span>
+          </div>
+        </div>
+        <div class="hero-score">
+          <strong>${Math.round(model.total)}</strong>
+          <div>
+            <div class="price-line"><b>${fmt(model.last, precision)}</b><span>${signed(model.change)}% from open</span></div>
+            <p class="tiny" style="margin:6px 0 0;">Updated ${model.row.time || "--"} | True range ${fmt(model.trueRange, precision)}</p>
+          </div>
+        </div>
+        <canvas data-chart="${model.asset}"></canvas>
+        <div class="trade-plan">
+          <div class="plan-head">
+            <h3>Price Suggestions</h3>
+            <span class="badge ${model.plan.side.startsWith("BUY") ? "buy" : "sell"}">${model.plan.side}</span>
+          </div>
+          <div class="levels">
+            <div class="level"><span>Entry price</span><b>${model.plan.side.startsWith("BUY") ? "BUY" : "SELL"} @ ${fmt(model.plan.entry, model.plan.precision)}</b></div>
+            <div class="level"><span>Partial realization</span><b>${fmt(model.plan.partial, model.plan.precision)}</b></div>
+            <div class="level"><span>Target 1</span><b>${fmt(model.plan.target1, model.plan.precision)}</b></div>
+            <div class="level"><span>Target 2</span><b>${fmt(model.plan.target2, model.plan.precision)}</b></div>
+            <div class="level"><span>Stop price</span><b>${fmt(model.plan.stop, model.plan.precision)}</b></div>
+          </div>
+        </div>
+        <div class="odds-grid">
+          <div class="trend-card"><span>Likelihood to Gain</span><b>${model.odds.gain}%</b><p class="tiny" style="margin:6px 0 0;">Estimated from score strength, timeframe agreement, and exhaustion risk.</p></div>
+          <div class="trend-card"><span>Likelihood to Loss</span><b>${model.odds.loss}%</b><p class="tiny" style="margin:6px 0 0;">Higher when signals conflict or move looks stretched.</p></div>
+        </div>
+        <div class="manual-panel">
+          <div class="plan-head">
+            <h3>Operation Entry Score</h3>
+            <span class="badge ${model.entryEdge.cls}">${model.entryEdge.value}/100 ${model.entryEdge.label}</span>
+          </div>
+          <div class="mini-grid">
+            ${model.entryEdge.components.map((item) => `<div class="metric"><span>${item[0]}</span><b>${item[1]}</b><p class="tiny" style="margin:6px 0 0;">${item[2]}</p></div>`).join("")}
+          </div>
+          <p class="tiny" style="margin:0;">Uses live DDE indicators, closed-candle timeframes, VWAP/HiLo/structure, EMA9/EMA21, opening range, risk/reward, and past-day cross-market context.</p>
+        </div>
+        <div class="manual-panel">
+          <div class="plan-head">
+            <h3>My Operation Tracker</h3>
+            <span class="badge ${model.manual ? model.manual.cls : "info"}">${model.manual ? model.manual.action : "NO ENTRY"}</span>
+          </div>
+          ${model.manual ? `<div class="levels">
+            <div class="level"><span>My entry</span><b>${model.manual.side} @ ${fmt(model.manual.entry, model.manual.precision)}</b></div>
+            <div class="level"><span>Contracts</span><b>${model.manual.contracts.quantity}</b></div>
+            <div class="level"><span>Partial</span><b>${fmt(model.manual.partial, model.manual.precision)}</b></div>
+            <div class="level"><span>Target 1</span><b>${fmt(model.manual.target1, model.manual.precision)}</b></div>
+            <div class="level"><span>Target 2</span><b>${fmt(model.manual.target2, model.manual.precision)}</b></div>
+            <div class="level"><span>Stop</span><b>${fmt(model.manual.stop, model.manual.precision)}</b></div>
+          </div>
+          <div class="levels">
+            <div class="level"><span>At partial</span><b>${model.manual.contracts.partial} contracts</b></div>
+            <div class="level"><span>At target 1</span><b>${model.manual.contracts.target1} contracts</b></div>
+            <div class="level"><span>At target 2</span><b>${model.manual.contracts.target2} contracts</b></div>
+            <div class="level"><span>Allocation note</span><b>${model.manual.contracts.note}</b></div>
+          </div>
+          <div class="levels">
+            <div class="level"><span>Trailing stage</span><b>${model.manual.trailingStage}</b><small class="level-note">${model.manual.side === "SELL" ? "Buy-stop placement" : "Sell-stop placement"} @ ${fmt(model.manual.trailingStop, model.manual.precision)}</small></div>
+            <div class="level"><span>Suggested trail</span><b>${fmt(model.manual.trailingStop, model.manual.precision)}</b></div>
+            <div class="level"><span>Win likelihood</span><b>${model.manual.winLikelihood}%</b></div>
+            <div class="level"><span>Loss likelihood</span><b>${model.manual.lossLikelihood}%</b></div>
+            <div class="level"><span>Progress vs risk</span><b>${model.manual.progress}%</b></div>
+            <div class="level"><span>Opened</span><b>${model.manual.openedAt || "--"}</b></div>
+            <div class="level"><span>Action</span><b>${model.manual.action}</b></div>
+          </div>
+          <p class="tiny" style="margin:0;">${model.manual.trailingText}</p>` : `<p class="tiny" style="margin:0;">Tell the dashboard your real entry price and contract quantity; it will track targets, stop, staged exits, and hold/reduce/realization suggestions from that price.</p>`}
+          <div class="manual-actions">
+            <button data-manual-entry="${model.asset}" data-side="BUY">Set BUY Entry</button>
+            <button data-manual-entry="${model.asset}" data-side="SELL">Set SELL Entry</button>
+            <button data-manual-clear="${model.asset}">Clear</button>
+          </div>
+        </div>
+        <div class="trade-plan">
+          <div class="plan-head">
+            <h3>Timeframe Recommendations</h3>
+            <span class="stamp">1 to 100</span>
+          </div>
+          <div class="timeframe-grid">
+            ${model.timeframes.map((tf) => `<div class="timeframe-card">
+              <h3>${tf.label}</h3>
+              <div class="mini-gauge" title="${tf.label}: ${tf.gauge.label}, score ${Math.round(tf.score)}" style="--angle:${tf.gauge.angle}deg; --arc-deg:${tf.gauge.arc}deg; --gauge-color:var(--${tf.gauge.cls === "buy" ? "green" : tf.gauge.cls === "sell" ? "red" : "amber"})">
+                <span class="mini-fill"></span>
+                <b>${tf.gauge.grade}</b>
+              </div>
+              <span class="badge ${tf.gauge.cls}">${tf.gauge.label}</span>
+              <p class="tiny" style="margin:0;">Score ${Math.round(tf.score)} | slope ${Math.round(tf.slope)}</p>
+              <div class="tf-detail">
+                <b>${tf.candleRead.label}</b>
+                <span>O/H/L/C ${fmt(tf.candle.open, precision)} / ${fmt(tf.candle.high, precision)} / ${fmt(tf.candle.low, precision)} / ${fmt(tf.candle.close, precision)}</span>
+                <span>Support ${tf.structure.support?.name || "--"} ${fmt(tf.structure.support?.value, precision)} (${fmt(tf.structure.supportDistance, 1)}% TR)</span>
+                <span>Resistance ${tf.structure.resistance?.name || "--"} ${fmt(tf.structure.resistance?.value, precision)} (${fmt(tf.structure.resistanceDistance, 1)}% TR)</span>
+                <span>Trendline ${fmt(tf.structure.trendline?.value, precision)} (${signed(tf.structure.trendDistance, 1)}% TR)</span>
+              </div>
+            </div>`).join("")}
+          </div>
+        </div>
+        <div class="trend-grid">
+          <div class="trend-card"><span>Buying Score Trend</span><b>${model.trend.buyingScore}/100</b><p class="tiny" style="margin:6px 0 0;">Session score slope ${signed(model.trend.slope, 0)}</p></div>
+          <div class="trend-card"><span>Selling Score Trend</span><b>${model.trend.sellingScore}/100</b><p class="tiny" style="margin:6px 0 0;">Mirror of buyer control.</p></div>
+          <div class="trend-card"><span>Trend Exhaustion</span><b>${model.trend.exhaustion}/100</b><p class="tiny" style="margin:6px 0 0;">${model.trend.direction}</p></div>
+        </div>
+        <div class="mini-grid">
+          ${model.parts.slice(0, 6).map((part) => {
+            const val = Math.round(part[2]);
+            const cls = val >= 25 ? "buy" : val <= -25 ? "sell" : "info";
+            const barColor = val >= 25 ? "var(--green)" : val <= -25 ? "var(--red)" : "var(--blue)";
+            return `<div class="metric"><span>${part[0]}</span><b>${val}</b><div class="bar"><i style="width:${clamp((val + 100) / 2, 0, 100)}%; background:${barColor}"></i></div><p class="tiny" style="margin:8px 0 0;">${part[1]}</p></div>`;
+          }).join("")}
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Signal</th><th>Score</th><th>Reading</th><th>Use</th></tr></thead>
+            <tbody>
+              ${model.parts.map((part) => {
+                const val = Math.round(part[2]);
+                const cls = val >= 25 ? "buy" : val <= -25 ? "sell" : "wait";
+                return `<tr><td><b>${part[0]}</b></td><td><span class="badge ${cls}">${val}</span></td><td>${part[1]}</td><td>${part[3]}</td></tr>`;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+      setTimeout(() => drawChart(div.querySelector("canvas"), history[model.asset], color), 0);
+      return div;
+    }
+
+    function renderContext(models, quotes) {
+      const context = document.getElementById("contextCards");
+      const rows = ["INDFUT", "DOLFUT", "PETR4", "NDAQ"].map((asset) => {
+        const row = quotes[asset] || {};
+        const change = pct(num(row, "last"), num(row, "open"));
+        return { asset, last: num(row, "last"), change, time: row.time || "--" };
+      });
+      context.innerHTML = rows.map((row) => {
+        const cls = row.change >= 0.1 ? "buy" : row.change <= -0.1 ? "sell" : "info";
+        const barColor = row.change >= 0.1 ? "var(--green)" : row.change <= -0.1 ? "var(--red)" : "var(--blue)";
+        return `<article class="panel pad"><div class="section-title"><h3>${row.asset}</h3><span class="badge ${cls}">${signed(row.change)}%</span></div><div class="metric"><span>Last</span><b>${fmt(row.last, row.asset.includes("FUT") ? 1 : 2)}</b><div class="bar"><i style="width:${clamp((row.change + 2) * 25, 0, 100)}%; background:${barColor}"></i></div></div><p class="tiny" style="margin:8px 0 0;">Quote time ${row.time}</p></article>`;
+      }).join("");
+
+      const notes = [];
+      const win = models.find((m) => m.asset === "WINFUT");
+      const wdo = models.find((m) => m.asset === "WDOFUT");
+      if (win && wdo) {
+        if (win.total > 55 && wdo.total < -20) notes.push("WIN buyer intent is aligned with softer dollar futures, a cleaner risk-on setup.");
+        else if (win.total > 55 && wdo.total > 35) notes.push("WIN buyer intent exists, but WDO buyer intent is a conflict. Watch for reversal risk.");
+        else if (wdo.total > 55 && win.total < 20) notes.push("WDO buyer intent is stronger than WIN. Dollar pressure can weigh on index futures.");
+        else notes.push("No strong cross-asset confirmation yet. Let aggression and VWAP decide.");
+      }
+      notes.push("Aggression, VWAP, HiLo, RSI, stochastic, DI, and money-flow columns are now live inputs.");
+      notes.push(`${historicalMarket.source}: ${historicalMarket.loaded ? `daily confirmation loaded for ${historicalMarket.details.map((item) => item.name).join(", ")}.` : "using local DDE session until public daily history is reachable."}`);
+      notes.push("Fields not present in Excel are no longer estimated; the dashboard scores what Profit exports.");
+      document.getElementById("globalNotes").innerHTML = notes.map((note, index) => `<li><span class="dot" style="background:${index ? "var(--blue)" : "var(--amber)"}"></span><span>${note}</span></li>`).join("");
+    }
+
+    function renderSummary(models) {
+      document.getElementById("summaryRows").innerHTML = models.map((model) => {
+        const precision = model.asset === "WINFUT" ? 0 : 1;
+        const top = model.parts.slice().sort((a, b) => Math.abs(b[2]) - Math.abs(a[2]))[0];
+        return `<tr>
+          <td><b>${model.asset}</b><br><span class="tiny">${model.row.time || "--"}</span></td>
+          <td><span class="badge ${model.intent.cls}">${Math.round(model.total)} ${model.intent.label}</span></td>
+          <td>${fmt(model.last, precision)} / ${fmt(model.vwap, precision)}</td>
+          <td>${signed(model.aggressionPct, 2)}% imbalance</td>
+          <td>${top[0]}: ${Math.round(top[2])}</td>
+          <td>${model.plan.side.startsWith("BUY") ? `Day trade buy near ${fmt(model.plan.entry, precision)}; stop ${fmt(model.plan.stop, precision)}.` : `Day trade sell near ${fmt(model.plan.entry, precision)}; stop ${fmt(model.plan.stop, precision)}.`}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    function renderFromPayload(payload) {
+      lastPayload = payload;
+      const quotes = payload.quotes || {};
+      const models = ASSETS.filter((asset) => quotes[asset]).map((asset) => buildAsset(quotes[asset], quotes[asset === "WINFUT" ? "WDOFUT" : "WINFUT"]));
+      models.forEach((model) => {
+        if (Number.isFinite(model.last)) history[model.asset] = history[model.asset].filter((point) => point.t >= marketOpenTime()).slice(-2400).concat({ t: Date.now(), price: model.last, score: model.total });
+        if (Number.isFinite(model.total)) scoreHistory[model.asset] = scoreHistory[model.asset].slice(-719).concat({ t: Date.now(), score: model.total });
+        updateIntentState(model);
+      });
+      saveIntradayHistory();
+      document.getElementById("assetCards").innerHTML = "";
+      models.forEach((model) => document.getElementById("assetCards").appendChild(renderAssetCard(model)));
+      renderContext(models, quotes);
+      renderSummary(models);
+      document.getElementById("rawJson").textContent = JSON.stringify(payload, null, 2);
+      document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+      refreshIntentDurations();
+    }
+
+    async function pollLiveBridge() {
+      const status = document.getElementById("liveStatus");
+      if (liveBusy) return;
+      liveBusy = true;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
+      try {
+        const res = await fetch("http://127.0.0.1:8765/api/quotes", { cache: "no-store", signal: controller.signal });
+        if (!res.ok) throw new Error(`Bridge returned ${res.status}`);
+        const payload = await res.json();
+        renderFromPayload(payload);
+        status.textContent = `Live from Excel: ${payload.updatedAt || "now"} (${Object.keys(payload.quotes || {}).length} symbols, ${(payload.columns || []).length} columns).`;
+      } catch (error) {
+        status.textContent = lastPayload
+          ? `Last good snapshot still displayed. Missed tick: ${error.message}.`
+          : `Live bridge unavailable: ${error.message}. Keep Excel open and run start_profit_excel_bridge.bat.`;
+      } finally {
+        clearTimeout(timeoutId);
+        liveBusy = false;
+      }
+    }
+
+    function startLivePolling() {
+      if (liveTimer) clearInterval(liveTimer);
+      if (durationTimer) clearInterval(durationTimer);
+      pollLiveBridge();
+      liveTimer = setInterval(pollLiveBridge, 1000);
+      durationTimer = setInterval(refreshIntentDurations, 1000);
+    }
+
+    document.getElementById("connectLive").addEventListener("click", startLivePolling);
+
+    document.getElementById("pauseLive").addEventListener("click", () => {
+      if (liveTimer) clearInterval(liveTimer);
+      if (durationTimer) clearInterval(durationTimer);
+      liveTimer = null;
+      durationTimer = null;
+      document.getElementById("liveStatus").textContent = "Live bridge paused.";
+    });
+
+    document.addEventListener("click", (event) => {
+      const entryButton = event.target.closest("[data-manual-entry]");
+      const clearButton = event.target.closest("[data-manual-clear]");
+      if (entryButton) {
+        const asset = entryButton.getAttribute("data-manual-entry");
+        const side = entryButton.getAttribute("data-side");
+        const current = lastPayload?.quotes?.[asset]?.last;
+        const raw = prompt(`${asset} ${side} entry price`, Number.isFinite(current) ? String(current) : "");
+        if (raw === null) return;
+        const entry = parseEntryPrice(raw);
+        if (!Number.isFinite(entry)) {
+          alert("Invalid entry price.");
+          return;
+        }
+        const existingQty = manualTrades[asset]?.quantity;
+        const qtyRaw = prompt(`${asset} contracts quantity`, Number.isFinite(existingQty) ? String(existingQty) : "1");
+        if (qtyRaw === null) return;
+        const quantity = parseContractQuantity(qtyRaw);
+        if (!Number.isFinite(quantity)) {
+          alert("Invalid contract quantity.");
+          return;
+        }
+        manualTrades[asset] = {
+          side,
+          entry,
+          quantity,
+          openedAt: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+        };
+        saveManualTrades();
+        if (lastPayload) renderFromPayload(lastPayload);
+      } else if (clearButton) {
+        const asset = clearButton.getAttribute("data-manual-clear");
+        delete manualTrades[asset];
+        saveManualTrades();
+        if (lastPayload) renderFromPayload(lastPayload);
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      if (lastPayload) renderFromPayload(lastPayload);
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && liveTimer) pollLiveBridge();
+    });
+
+    document.getElementById("globalNotes").innerHTML = `<li><span class="dot"></span><span>Start the bridge and open this page from http://127.0.0.1:8765/. The dashboard now connects automatically.</span></li>`;
+    document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    loadHistoricalContext().catch(() => {});
+    startLivePolling();
+  </script>
+</body>
+</html>
+
+
+
+

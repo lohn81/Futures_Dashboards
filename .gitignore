@@ -1,0 +1,9 @@
+# Local/runtime files
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# Keep generated dashboard deliverables tracked, but ignore common local clutter.
+.vscode/
+.idea/
