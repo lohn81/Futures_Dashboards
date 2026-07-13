@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WINFUT / WDOFUT Pro Daytrade Dashboard</title>
+  <title>WINFUT / WDOFUT / BITFUT Pro Daytrade Dashboard</title>
   <style>
     :root {
       --bg: #f4f6f3;
@@ -97,7 +97,7 @@
     .grid > * { min-width: 0; }
 
     .asset-grid {
-      grid-template-columns: repeat(2, minmax(360px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 390px), 1fr));
       align-items: start;
     }
 
@@ -722,7 +722,7 @@
   <div class="app">
     <header class="topbar">
       <section class="brand">
-        <h1>WINFUT / WDOFUT Pro Daytrade</h1>
+        <h1>WINFUT / WDOFUT / BITFUT Pro Daytrade</h1>
         <p>Gauge, intraday chart, timeframe recommendations, operation tracker, and 15-minute entry hypotheses from Profit DDE plus external reference context.</p>
       </section>
     </header>
@@ -789,9 +789,9 @@
   </div>
 
   <script>
-    const ASSETS = ["WINFUT", "WDOFUT"];
+    const ASSETS = ["WINFUT", "WDOFUT", "BITFUT"];
     const history = loadIntradayHistory();
-    const scoreHistory = { WINFUT: [], WDOFUT: [] };
+    const scoreHistory = { WINFUT: [], WDOFUT: [], BITFUT: [] };
     const dailyScoreHistory = loadDailyScoreHistory();
     const historicalMarket = { loaded: false, source: "local session", bias: 0, exhaustion: 0, details: [] };
     const manualTrades = loadManualTrades();
@@ -838,6 +838,7 @@
       let text = String(raw).trim().replace(/\s/g, "");
       if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(text)) text = text.replace(/,/g, "");
       else if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(text)) text = text.replace(/\./g, "").replace(",", ".");
+      else if (/^-?\d+,\d+$/.test(text)) text = text.replace(",", ".");
       const parsed = Number(text);
       return Number.isFinite(parsed) ? parsed : null;
     }
@@ -846,6 +847,36 @@
       const raw = String(row?.[key] || "");
       const parts = raw.split("/").map((part) => num({ value: part }, "value"));
       return { plus: parts[0] || 0, minus: parts[1] || 0 };
+    }
+
+    function parseDirectionalSet(row) {
+      const raw = String(row?.["DI+/DI-/ADX"] || row?.["di_di_adx"] || row?.["DI+/DI-"] || "");
+      const parts = raw.split("/").map((part) => num({ value: part }, "value"));
+      return { plus: parts[0] || 0, minus: parts[1] || 0, adx: parts[2] || 0 };
+    }
+
+    function quotePeerAsset(asset) {
+      if (asset === "WINFUT") return "WDOFUT";
+      if (asset === "WDOFUT") return "WINFUT";
+      return "NDAQ";
+    }
+
+    function crossMarketBias(asset, peerChange) {
+      if (asset === "WINFUT") return -peerChange;
+      if (asset === "WDOFUT") return -peerChange * 0.35;
+      return peerChange * 0.65;
+    }
+
+    function crossMarketLabel(asset, peerChange) {
+      if (asset === "WINFUT") return [`WDO change ${signed(peerChange)}%`, "Falling dollar usually helps index futures; rising dollar pressures it."];
+      if (asset === "WDOFUT") return [`WIN change ${signed(peerChange)}%`, "Strong index risk appetite can cap dollar futures."];
+      return [`NDAQ change ${signed(peerChange)}%`, "Bitcoin futures tend to respond to risk appetite and Nasdaq pressure."];
+    }
+
+    function assetHistoricalBias(asset) {
+      if (asset === "WDOFUT") return -historicalMarket.bias * 0.75;
+      if (asset === "BITFUT") return historicalMarket.bias * 0.65;
+      return historicalMarket.bias;
     }
 
     function pct(last, open) {
@@ -881,9 +912,9 @@
           const price = Number(point);
           return Number.isFinite(price) ? { t: Date.now(), price, score: 0 } : null;
         }).filter(Boolean);
-        return { WINFUT: normalize(parsed.WINFUT), WDOFUT: normalize(parsed.WDOFUT) };
+        return { WINFUT: normalize(parsed.WINFUT), WDOFUT: normalize(parsed.WDOFUT), BITFUT: normalize(parsed.BITFUT) };
       } catch {
-        return { WINFUT: [], WDOFUT: [] };
+        return { WINFUT: [], WDOFUT: [], BITFUT: [] };
       }
     }
 
@@ -990,6 +1021,43 @@
       saveIntradayHistory();
     }
 
+    function latestAtlasQuote(asset) {
+      const rows = normalizeAtlasRows(atlasHistory?.[asset]?.["5m"]);
+      if (!rows.length) return null;
+      const latest = rows[0];
+      const sameDay = rows.filter((row) => row.date === latest.date);
+      const dayOpen = sameDay.at(-1)?.open ?? latest.open;
+      const dayHigh = Math.max(...sameDay.map((row) => row.high));
+      const dayLow = Math.min(...sameDay.map((row) => row.low));
+      const candle15 = normalizeAtlasRows(atlasHistory?.[asset]?.["15m"])[0];
+      const trueRange = Math.max(latest.high - latest.low, candle15 ? candle15.high - candle15.low : 0, planProfile(asset).tick);
+      return {
+        asset,
+        Asset: asset,
+        date: latest.date,
+        time: latest.time,
+        last: latest.close,
+        open: dayOpen,
+        high: dayHigh,
+        low: dayLow,
+        true_range: trueRange,
+        trades: latest.quantity,
+        volume: latest.volume,
+        source: "Atlas CSV"
+      };
+    }
+
+    function mergeAtlasQuotes(quotes) {
+      const merged = { ...(quotes || {}) };
+      ASSETS.forEach((asset) => {
+        if (!merged[asset]) {
+          const atlasQuote = latestAtlasQuote(asset);
+          if (atlasQuote) merged[asset] = atlasQuote;
+        }
+      });
+      return merged;
+    }
+
     function openingRangeStartTime() {
       const now = new Date();
       const day = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
@@ -1025,6 +1093,9 @@
     function externalCandleCard(asset, precision) {
       const item = externalCandles?.[asset];
       if (!item) {
+        if (asset === "BITFUT") {
+          return `<div class="manual-panel"><div class="plan-head"><h3>Opening Reference</h3><span class="badge info">ATLAS CSV</span></div><p class="tiny" style="margin:0;">BITFUT opening and timeframe context comes from the Atlas candle files and live quote indicators when present.</p></div>`;
+        }
         return `<div class="manual-panel"><div class="plan-head"><h3>External 9AM Candle</h3><span class="badge wait">LOADING</span></div><p class="tiny" style="margin:0;">Checking internet/API reference sources for 9:00:00-9:04:59 BRT.</p></div>`;
       }
       const cls = item.status === "ok" ? "info" : "wait";
@@ -1241,24 +1312,26 @@
           : 0;
         const oscillatorRisk = rowInputs.rsi > 72 || rowInputs.stochastic > 82 ? -10 : rowInputs.rsi < 28 || rowInputs.stochastic < 18 ? 10 : 0;
         const exhaustionFade = Math.abs(total) > 72 ? -Math.sign(total) * Math.min(18, rowInputs.exhaustion * 0.24) : 0;
-        const historicalBias = tf.key === "1d" ? historicalMarket.bias * 0.45 : historicalMarket.bias * 0.16;
+        const historicalBias = tf.key === "1d" ? assetHistoricalBias(asset) * 0.45 : assetHistoricalBias(asset) * 0.16;
         const adjusted = clamp(total * tf.weight + slope * 0.55 + oscillatorRisk + exhaustionFade + historicalBias + candleRead.bias + structureBias, -100, 100);
         return { ...tf, score: adjusted, slope, gauge: recommendationGauge(adjusted), candle, candleRead, structure };
       });
     }
 
     function planProfile(asset) {
-      const isWin = asset === "WINFUT";
-      return {
-        tick: isWin ? 5 : 0.5,
-        precision: isWin ? 0 : 1,
-        minRangeTicks: isWin ? 8 : 10,
-        partialMult: isWin ? 0.10 : 0.16,
-        target1Mult: isWin ? 0.23 : 0.31,
-        target2Mult: isWin ? 0.39 : 0.58,
-        stopMult: isWin ? 0.19 : 0.25,
-        stopStructureWeight: isWin ? 0.42 : 0.72
-      };
+      if (asset === "WINFUT") {
+        return { tick: 5, precision: 0, minRangeTicks: 8, partialMult: 0.10, target1Mult: 0.23, target2Mult: 0.39, stopMult: 0.19, stopStructureWeight: 0.42 };
+      }
+      if (asset === "BITFUT") {
+        return { tick: 20, precision: 0, minRangeTicks: 10, partialMult: 0.14, target1Mult: 0.30, target2Mult: 0.55, stopMult: 0.22, stopStructureWeight: 0.55 };
+      }
+      return { tick: 0.5, precision: 1, minRangeTicks: 10, partialMult: 0.16, target1Mult: 0.31, target2Mult: 0.58, stopMult: 0.25, stopStructureWeight: 0.72 };
+    }
+
+    function displayPrecision(asset) {
+      if (["WINFUT", "BITFUT", "INDFUT"].includes(asset)) return 0;
+      if (["WDOFUT", "DOLFUT"].includes(asset)) return 1;
+      return 2;
     }
 
     function structureAdjustedTarget(asset, stage, rawTarget, entry, direction, dayRange, structure, profile) {
@@ -1374,7 +1447,7 @@
       const plan = buildPlanFromEntry(model.asset, saved.side, saved.entry, model);
       const contracts = contractPlan(saved.quantity);
       const isShort = plan.side === "SELL";
-      const tick = model.asset === "WINFUT" ? 5 : 0.5;
+      const tick = planProfile(model.asset).tick;
       const move = (model.last - plan.entry) * (isShort ? -1 : 1);
       const risk = Math.abs(plan.entry - plan.stop) || 1;
       const progress = clamp((move / risk) * 100, -100, 220);
@@ -1421,7 +1494,7 @@
       let changed = false;
       const legs = entries.map((entry) => {
         const evaluated = evaluateManualTrade(model, entry);
-        if (!Number.isFinite(entry.trailingStop) || Math.abs(evaluated.trailingStop - entry.trailingStop) >= (model.asset === "WINFUT" ? 2.5 : 0.25)) {
+        if (!Number.isFinite(entry.trailingStop) || Math.abs(evaluated.trailingStop - entry.trailingStop) >= planProfile(model.asset).tick / 2) {
           entry.trailingStop = evaluated.trailingStop;
           changed = true;
         }
@@ -1431,7 +1504,7 @@
       let combined = null;
       if (average) {
         combined = evaluateManualTrade(model, { ...average, trailingStop: Number(record.combinedTrailingStop) });
-        if (!Number.isFinite(record.combinedTrailingStop) || Math.abs(combined.trailingStop - record.combinedTrailingStop) >= (model.asset === "WINFUT" ? 2.5 : 0.25)) {
+        if (!Number.isFinite(record.combinedTrailingStop) || Math.abs(combined.trailingStop - record.combinedTrailingStop) >= planProfile(model.asset).tick / 2) {
           record.combinedTrailingStop = combined.trailingStop;
           changed = true;
         }
@@ -1489,7 +1562,7 @@
       const rrScore = clamp((rr - 1) * 28, -15, 24);
       const micro = microTrendEdge(model.asset, model.last, model.trueRange);
       const opening = openingRangeEdge(model.asset, model.last, model.trueRange, direction);
-      const historicalBias = (model.asset === "WINFUT" ? historicalMarket.bias : -historicalMarket.bias * 0.75) * direction;
+      const historicalBias = assetHistoricalBias(model.asset) * direction;
       const volatilityPenalty = (historicalMarket.volatility || 0) * 0.22 + (historicalMarket.exhaustion || 0) * 0.18;
       const raw = 50 + model.total * direction * 0.24 + (agreement - 0.5) * 34 + structureScore + rrScore + micro.score * direction * 0.16 + opening.score * 0.12 + historicalBias * 0.32 - volatilityPenalty;
       const value = clamp(Math.round(raw), 1, 100);
@@ -1739,46 +1812,87 @@
       const momentum = num(row, "momentum");
       const priceOsc = num(row, "price_oscillator");
       const cmf = num(row, "chaikin_money_flow");
+      const chaikinOsc = num(row, "chaikin_oscillator");
       const mfi = num(row, "money_flow_index");
       const moneyFlow = num(row, "money_flow");
       const accDist = num(row, "acumulation_distribuition");
+      const obv = num(row, "obv");
+      const obvWeighted = num(row, "obv_weighted");
+      const forceIndex = num(row, "force_index");
+      const macd = num(row, "macd");
+      const macdh = num(row, "macdh");
+      const aroonOsc = num(row, "aroon_oscillator");
+      const cci = num(row, "cci");
+      const bollingerB = num(row, "bollinger_b");
+      const bollingerWidth = num(row, "bollinger_band_width");
+      const easeOfMovement = num(row, "ease_of_movement");
+      const historicalVol = num(row, "historical_volatility");
+      const historicalVolAvg = num(row, "historical_volatility_average");
+      const impliedVol = num(row, "implied_volatility");
+      const facilitation = num(row, "market_facilitation_index");
+      const priceVolumeTrend = num(row, "price_volume_trend");
+      const twap = num(row, "twap");
+      const vwma = num(row, "vwma");
       const buyAgg = num(row, "tr_aggression_volume_buy");
       const sellAgg = num(row, "tr_aggression_volume_sell");
       const aggBalance = num(row, "tr_aggression_volume_balance") || num(row, "tr_cumulative_aggression_balance");
-      const dmi = parsePair(row, "DI+/DI-");
+      const aggHistogram = num(row, "tr_agression_histogram");
+      const dmi = parseDirectionalSet(row);
+      const adx = dmi.adx || num(row, "adx") || 0;
       const change = pct(last, open);
       const peerChange = pct(num(peerRow, "last"), num(peerRow, "open"));
       const asset = row?.asset || row?.Asset || "ASSET";
-      const isWin = asset === "WINFUT";
+      const profile = planProfile(asset);
+      const precision = profile.precision;
 
       const aggressionDenom = Math.max(1, Math.abs(buyAgg || 0) + Math.abs(sellAgg || 0));
       const aggressionPct = ((aggBalance || 0) / aggressionDenom) * 100;
       const vwapDistance = last && vwap ? last - vwap : 0;
       const weeklyDistance = last && vwapWeekly ? last - vwapWeekly : 0;
       const monthlyDistance = last && vwapMonthly ? last - vwapMonthly : 0;
+      const twapDistance = last && twap ? last - twap : 0;
+      const vwmaDistance = last && vwma ? last - vwma : 0;
       const hiloDistance = last && hilo ? last - hilo : 0;
-      const peerLean = isWin ? -peerChange : -peerChange * 0.35;
+      const peerLean = crossMarketBias(asset, peerChange);
+      const crossLabel = crossMarketLabel(asset, peerChange);
+      const flowScale = asset === "WINFUT" ? 900000 : asset === "BITFUT" ? 350000 : 90000;
+      const pvtScale = asset === "WINFUT" ? 40000000000 : asset === "BITFUT" ? 800000000 : 6000000000;
+      const aggressionScale = asset === "WINFUT" ? 9000 : asset === "BITFUT" ? 900 : 5000;
+      const forceScale = asset === "WINFUT" ? 18000 : asset === "BITFUT" ? 380000 : 9000;
+      const obvScale = asset === "WINFUT" ? 18000000000 : asset === "BITFUT" ? 50000000000 : 3000000000;
+      const volatilitySpread = Number.isFinite(historicalVol) && Number.isFinite(historicalVolAvg) ? historicalVol - historicalVolAvg : 0;
+      const directionalPressure = dmi.plus - dmi.minus;
+      const adxBoost = clamp((adx - 18) / 18, 0, 1);
+      const impulseDirection = Math.sign((momentum || 0) + (priceOsc || 0) * trueRange);
+      const facilitationScore = clamp(score(facilitation || 0, asset === "BITFUT" ? 1200 : asset === "WINFUT" ? 450 : 120) * Math.sign(aggBalance || change || 0), -100, 100);
+      const volatilityScore = clamp(score(volatilitySpread, Math.max(8, historicalVolAvg || 12)) * impulseDirection * 0.7 + score((impliedVol || historicalVol || 0) - (historicalVol || 0), 18) * 0.3, -100, 100);
+      const bandScore = clamp(score((bollingerB || 50) - 50, 42) * 0.38 + score(cci || 0, 160) * 0.30 + score(aroonOsc || 0, 65) * 0.32, -100, 100);
+      const forceScore = clamp(score(forceIndex || 0, forceScale) * 0.36 + score(macd || 0, trueRange * 0.8) * 0.28 + score(macdh || 0, trueRange * 0.45) * 0.20 + score(easeOfMovement || 0, forceScale * 2) * 0.16, -100, 100);
 
       const parts = [
         ["Price action", `${signed(change)}% from open`, score(change, 1.2), "Current session direction."],
-        ["VWAP stack", `VWAP ${fmt(vwap, isWin ? 0 : 3)}, W ${fmt(vwapWeekly, isWin ? 0 : 3)}, M ${fmt(vwapMonthly, isWin ? 0 : 3)}`, score(vwapDistance / trueRange + weeklyDistance / trueRange * 0.5 + monthlyDistance / trueRange * 0.3, 1.6), "Above VWAPs favors buyer control; below favors sellers."],
-        ["HiLo trend", `HiLo ${fmt(hilo, isWin ? 0 : 3)}, dist ${signed(hiloDistance, isWin ? 0 : 1)}`, score(hiloDistance, trueRange * 0.9), "Trend activator from Profit."],
-        ["Aggression", `Bal ${signed(aggBalance, 0)}, Buy ${fmt(buyAgg, 0)}, Sell ${fmt(sellAgg, 0)}`, score(aggressionPct, 6), "Buy vs sell aggression imbalance."],
-        ["Money flow", `CMF ${signed(cmf, 2)}, MFI ${fmt(mfi, 1)}, A/D ${signed(accDist, 0)}`, clamp(score((cmf || 0) * 100, 20) * 0.42 + score((mfi || 50) - 50, 22) * 0.36 + score(accDist || 0, isWin ? 900000 : 90000) * 0.22, -100, 100), "Whether volume is supporting the move."],
-        ["Momentum", `Mom ${signed(momentum, isWin ? 0 : 1)}, Osc ${signed(priceOsc, 2)}, SMI ${signed(smi, 1)}`, clamp(score(momentum || 0, trueRange * 0.9) * 0.45 + score(priceOsc || 0, 0.8) * 0.25 + score(smi || 0, 60) * 0.30, -100, 100), "Impulse and oscillator confirmation."],
+        ["VWAP/TWAP stack", `VWAP ${fmt(vwap, precision)}, TWAP ${fmt(twap, precision)}, VWMA ${fmt(vwma, precision)}`, score(vwapDistance / trueRange + weeklyDistance / trueRange * 0.35 + monthlyDistance / trueRange * 0.2 + twapDistance / trueRange * 0.25 + vwmaDistance / trueRange * 0.25, 1.7), "Above VWAP/TWAP/VWMA favors buyer control; below favors sellers."],
+        ["HiLo trend", `HiLo ${fmt(hilo, precision)}, dist ${signed(hiloDistance, precision)}`, score(hiloDistance, trueRange * 0.9), "Trend activator from Profit."],
+        ["Aggression", `Bal ${signed(aggBalance, 0)}, Hist ${signed(aggHistogram, 0)}, Buy ${fmt(buyAgg, 0)}, Sell ${fmt(sellAgg, 0)}`, clamp(score(aggressionPct, 6) * 0.72 + score(aggHistogram || 0, aggressionScale) * 0.28, -100, 100), "Buy vs sell aggression imbalance and histogram impulse."],
+        ["Money flow", `CMF ${signed(cmf, 2)}, MFI ${fmt(mfi, 1)}, A/D ${signed(accDist, 0)}, PVT ${signed(priceVolumeTrend, 0)}, OBV ${signed(obv || obvWeighted, 0)}`, clamp(score((cmf || 0) * 100, 20) * 0.22 + score((mfi || 50) - 50, 22) * 0.20 + score(accDist || 0, flowScale) * 0.16 + score(priceVolumeTrend || 0, pvtScale) * 0.18 + score(obv || obvWeighted || 0, obvScale) * 0.14 + score(chaikinOsc || 0, flowScale * 8) * 0.10, -100, 100), "Whether volume is supporting the move."],
+        ["Momentum", `Mom ${signed(momentum, precision)}, Osc ${signed(priceOsc, 2)}, SMI ${signed(smi, 1)}`, clamp(score(momentum || 0, trueRange * 0.9) * 0.45 + score(priceOsc || 0, 0.8) * 0.25 + score(smi || 0, 60) * 0.30, -100, 100), "Impulse and oscillator confirmation."],
+        ["Force/MACD", `Force ${signed(forceIndex, 0)}, MACD ${signed(macd, 1)}, H ${signed(macdh, 1)}, EOM ${signed(easeOfMovement, 0)}`, forceScore, "Force Index, MACD histogram, and ease of movement confirmation."],
         ["RSI/Stochastic", `RSI ${fmt(rsi, 1)}, Stoch ${fmt(stochastic, 1)}, StochRSI ${fmt(stochRsi, 2)}`, clamp(score((rsi || 50) - 50, 24) * 0.35 + score((stochastic || 50) - 50, 38) * 0.45 + score(((stochRsi || 0.5) - 0.5) * 100, 50) * 0.20, -100, 100), "Timing and exhaustion risk."],
-        ["DI pressure", `DI+ ${fmt(dmi.plus, 1)} / DI- ${fmt(dmi.minus, 1)}`, score(dmi.plus - dmi.minus, 14), "Directional movement balance."],
-        ["Cross-market", isWin ? `WDO change ${signed(peerChange)}%` : `WIN change ${signed(peerChange)}%`, score(peerLean, 1.1), isWin ? "Falling dollar usually helps index futures; rising dollar pressures it." : "Strong index risk appetite can cap dollar futures."]
+        ["Band/Aroon", `BB% ${fmt(bollingerB, 1)}, BW ${fmt(bollingerWidth, 1)}, Aroon ${signed(aroonOsc, 1)}, CCI ${signed(cci, 1)}`, bandScore, "Band location, Aroon pressure, and CCI context."],
+        ["DI/ADX pressure", `DI+ ${fmt(dmi.plus, 1)} / DI- ${fmt(dmi.minus, 1)} / ADX ${fmt(adx, 1)}`, clamp(score(directionalPressure, 14) * (0.72 + adxBoost * 0.28), -100, 100), "Directional movement balance, strengthened when ADX confirms trend."],
+        ["Volatility regime", `HV ${fmt(historicalVol, 1)}, Avg ${fmt(historicalVolAvg, 1)}, IV ${fmt(impliedVol, 1)}`, volatilityScore, "Volatility expansion only helps when it aligns with impulse."],
+        ["Market facilitation", `MFIx ${fmt(facilitation, 2)}, Money ${signed(moneyFlow, 0)}`, clamp(facilitationScore * 0.62 + score(moneyFlow || 0, flowScale) * 0.38, -100, 100), "Efficiency of price movement with volume."],
+        ["Cross-market", crossLabel[0], score(peerLean, 1.1), crossLabel[1]]
       ];
 
-      const weights = [0.12, 0.16, 0.12, 0.20, 0.13, 0.11, 0.07, 0.05, 0.04];
+      const weights = [0.09, 0.12, 0.09, 0.15, 0.11, 0.08, 0.08, 0.06, 0.06, 0.06, 0.04, 0.03, 0.03];
       const total = parts.reduce((sum, part, index) => sum + part[2] * weights[index], 0);
       const intent = classify(total);
       const gauge = recommendationGauge(total);
       const exhaustionInput = Math.max(Math.abs((rsi || 50) - 50), Math.abs((stochastic || 50) - 50), Math.abs(smi || 0) * 0.4);
       const timeframes = buildTimeframes(asset, total, { rsi: rsi || 50, stochastic: stochastic || 50, exhaustion: exhaustionInput, last, high, low, trueRange, vwap, hilo });
-      const buyZone = Math.round(Math.max(low || last, (last || 0) - trueRange * 0.22) / (isWin ? 5 : 0.5)) * (isWin ? 5 : 0.5);
-      const sellZone = Math.round(Math.min(high || last, (last || 0) + trueRange * 0.22) / (isWin ? 5 : 0.5)) * (isWin ? 5 : 0.5);
+      const buyZone = Math.round(Math.max(low || last, (last || 0) - trueRange * 0.22) / profile.tick) * profile.tick;
+      const sellZone = Math.round(Math.min(high || last, (last || 0) + trueRange * 0.22) / profile.tick) * profile.tick;
       const invalidation = intent.label === "SELL INTENT" ? sellZone + trueRange * 0.35 : buyZone - trueRange * 0.35;
       const plan = buildTradePlan({ asset, last, high, low, trueRange, vwap, hilo, total, intent });
       const trend = scoreTrendStats(asset, total);
@@ -1977,6 +2091,12 @@
     function tradingViewSnapshotCard(model, precision) {
       const item = tradingViewSnapshots?.[model.asset];
       if (!item) {
+        if (model.asset === "BITFUT") {
+          return `<div class="manual-panel">
+            <div class="plan-head"><h3>External Snapshot</h3><span class="badge info">ATLAS / QUOTES</span></div>
+            <p class="tiny" style="margin:0;">BITFUT is currently driven by the quote file indicators and Atlas 5m/15m/30m candle history. TradingView browser capture is configured for WIN1!/WDO1!.</p>
+          </div>`;
+        }
         return `<div class="manual-panel">
           <div class="plan-head"><h3>TradingView 15m Browser Capture</h3><span class="badge wait">LOADING</span></div>
           <p class="tiny" style="margin:0;">Waiting for one-minute TradingView reference fetch.</p>
@@ -2058,7 +2178,7 @@
       const div = document.createElement("article");
       div.className = "panel intent-card";
       const color = model.intent.cls === "buy" ? "var(--green)" : model.intent.cls === "sell" ? "var(--red)" : "var(--blue)";
-      const precision = model.asset === "WINFUT" ? 0 : 1;
+      const precision = displayPrecision(model.asset);
       div.innerHTML = `
         <div class="section-title">
           <h2>${model.asset}</h2>
@@ -2189,19 +2309,21 @@
       context.innerHTML = rows.map((row) => {
         const cls = row.change >= 0.1 ? "buy" : row.change <= -0.1 ? "sell" : "info";
         const barColor = row.change >= 0.1 ? "var(--green)" : row.change <= -0.1 ? "var(--red)" : "var(--blue)";
-        return `<article class="panel pad"><div class="section-title"><h3>${row.asset}</h3><span class="badge ${cls}">${signed(row.change)}%</span></div><div class="metric"><span>Last</span><b>${fmt(row.last, row.asset.includes("FUT") ? 1 : 2)}</b><div class="bar"><i style="width:${clamp((row.change + 2) * 25, 0, 100)}%; background:${barColor}"></i></div></div><p class="tiny" style="margin:8px 0 0;">Quote time ${row.time}</p></article>`;
+        return `<article class="panel pad"><div class="section-title"><h3>${row.asset}</h3><span class="badge ${cls}">${signed(row.change)}%</span></div><div class="metric"><span>Last</span><b>${fmt(row.last, displayPrecision(row.asset))}</b><div class="bar"><i style="width:${clamp((row.change + 2) * 25, 0, 100)}%; background:${barColor}"></i></div></div><p class="tiny" style="margin:8px 0 0;">Quote time ${row.time}</p></article>`;
       }).join("");
 
       const notes = [];
       const win = models.find((m) => m.asset === "WINFUT");
       const wdo = models.find((m) => m.asset === "WDOFUT");
+      const bit = models.find((m) => m.asset === "BITFUT");
       if (win && wdo) {
         if (win.total > 55 && wdo.total < -20) notes.push("WIN buyer intent is aligned with softer dollar futures, a cleaner risk-on setup.");
         else if (win.total > 55 && wdo.total > 35) notes.push("WIN buyer intent exists, but WDO buyer intent is a conflict. Watch for reversal risk.");
         else if (wdo.total > 55 && win.total < 20) notes.push("WDO buyer intent is stronger than WIN. Dollar pressure can weigh on index futures.");
         else notes.push("No strong cross-asset confirmation yet. Let aggression and VWAP decide.");
       }
-      notes.push("Aggression, VWAP, HiLo, RSI, stochastic, DI, and money-flow columns are now live inputs.");
+      if (bit) notes.push(`BITFUT is now included with Atlas 5m/15m/30m candles${bit.row.source === "Atlas CSV" ? " while waiting for a live quote row" : " and live quote indicators"}.`);
+      notes.push("Aggression, VWAP, HiLo, RSI, stochastic, SMI/StochRSI, ADX, volatility, market facilitation, PVT, and money-flow columns are live score inputs.");
       if (atlasFiles.length) notes.push(`Atlas CSV history loaded from C:\\project atlas: ${atlasFiles.length} files feeding 5m/15m/30m candle analysis.`);
       notes.push(`${historicalMarket.source}: ${historicalMarket.loaded ? `daily confirmation loaded for ${historicalMarket.details.map((item) => item.name).join(", ")}.` : "using local DDE session until public daily history is reachable."}`);
       notes.push("TradingView WIN1!/WDO1! uses local 15m browser captures when you run the helper on the logged-in chart; scanner/page values are fallback references.");
@@ -2211,7 +2333,7 @@
 
     function renderSummary(models) {
       document.getElementById("summaryRows").innerHTML = models.map((model) => {
-        const precision = model.asset === "WINFUT" ? 0 : 1;
+        const precision = displayPrecision(model.asset);
         const top = model.parts.slice().sort((a, b) => Math.abs(b[2]) - Math.abs(a[2]))[0];
         return `<tr>
           <td><b>${model.asset}</b><br><span class="tiny">${model.row.time || "--"}</span></td>
@@ -2226,8 +2348,8 @@
 
     function renderFromPayload(payload) {
       lastPayload = payload;
-      const quotes = payload.quotes || {};
-      const models = ASSETS.filter((asset) => quotes[asset]).map((asset) => buildAsset(quotes[asset], quotes[asset === "WINFUT" ? "WDOFUT" : "WINFUT"]));
+      const quotes = mergeAtlasQuotes(payload.quotes || {});
+      const models = ASSETS.filter((asset) => quotes[asset]).map((asset) => buildAsset(quotes[asset], quotes[quotePeerAsset(asset)] || {}));
       models.forEach((model) => {
         if (Number.isFinite(model.last)) history[model.asset] = history[model.asset].filter((point) => point.t >= marketOpenTime()).slice(-2400).concat({ t: Date.now(), price: model.last, score: model.total });
         if (Number.isFinite(model.total)) scoreHistory[model.asset] = scoreHistory[model.asset].slice(-719).concat({ t: Date.now(), score: model.total });

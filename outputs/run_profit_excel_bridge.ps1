@@ -16,6 +16,7 @@ $script:TradingViewBrowserCapturePath = Join-Path $PSScriptRoot "tradingview_bro
 $script:LastAtlasJson = $null
 $script:LastAtlasReadAt = [DateTime]::MinValue
 $script:AtlasCacheMs = 60000
+Add-Type -AssemblyName System.IO.Compression
 
 function Convert-ToNumber($value) {
   if ($null -eq $value) { return $null }
@@ -47,6 +48,131 @@ function Convert-ToNumber($value) {
     return $number * $multiplier
   }
   return $null
+}
+
+function Convert-ExcelColumnToIndex($reference) {
+  $letters = ([regex]::Match([string]$reference, "^[A-Z]+")).Value
+  $index = 0
+  foreach ($char in $letters.ToCharArray()) {
+    $index = ($index * 26) + ([int][char]$char - [int][char]'A' + 1)
+  }
+  return $index
+}
+
+function Get-XlsxSharedStrings($zip) {
+  $entry = $zip.GetEntry("xl/sharedStrings.xml")
+  if ($null -eq $entry) { return @() }
+  $reader = [IO.StreamReader]::new($entry.Open())
+  try {
+    [xml]$xml = $reader.ReadToEnd()
+  } finally {
+    $reader.Close()
+  }
+  $ns = [Xml.XmlNamespaceManager]::new($xml.NameTable)
+  $ns.AddNamespace("x", "http://schemas.openxmlformats.org/spreadsheetml/2006/main")
+  $strings = @()
+  foreach ($si in $xml.SelectNodes("//x:si", $ns)) {
+    $strings += (($si.SelectNodes(".//x:t", $ns) | ForEach-Object { $_."#text" }) -join "")
+  }
+  return $strings
+}
+
+function Get-XlsxCellText($cell, $ns, $sharedStrings) {
+  $type = $cell.GetAttribute("t")
+  $valueNode = $cell.SelectSingleNode("x:v", $ns)
+  $value = if ($valueNode) { $valueNode.InnerText } else { "" }
+  if ($type -eq "s" -and $value -ne "") {
+    return $sharedStrings[[int]$value]
+  }
+  if ($type -eq "inlineStr") {
+    return (($cell.SelectNodes(".//x:t", $ns) | ForEach-Object { $_."#text" }) -join "")
+  }
+  return $value
+}
+
+function New-QuotesPayloadFromMatrix($matrix, $source) {
+  if (!$matrix.Count) { throw "Workbook has no rows." }
+  $headers = @()
+  foreach ($header in @($matrix[0])) {
+    $text = ([string]$header).Trim()
+    if ($text -eq "") { $text = "Column$($headers.Count + 1)" }
+    $headers += $text
+  }
+  $quotes = [ordered]@{}
+
+  for ($rowIndex = 1; $rowIndex -lt $matrix.Count; $rowIndex++) {
+    $row = @($matrix[$rowIndex])
+    $asset = ([string]$row[0]).Trim()
+    if ($asset -eq "") { continue }
+    $quote = [ordered]@{ asset = $asset }
+
+    for ($col = 1; $col -lt $headers.Count; $col++) {
+      $header = $headers[$col]
+      $text = if ($col -lt $row.Count) { [string]$row[$col] } else { "" }
+      $number = Convert-ToNumber $text
+      $quote[$header] = $text
+      if ($null -ne $number) {
+        $key = ($header -replace "[^A-Za-z0-9]+", "_").Trim("_").ToLowerInvariant()
+        $quote[$key] = $number
+      }
+    }
+
+    $quote.date = if ($row.Count -gt 1) { [string]$row[1] } else { "" }
+    $quote.time = if ($row.Count -gt 2) { [string]$row[2] } else { "" }
+    $quote.last = if ($row.Count -gt 3) { Convert-ToNumber $row[3] } else { $null }
+    $quote.open = if ($row.Count -gt 4) { Convert-ToNumber $row[4] } else { $null }
+    $quote.high = if ($row.Count -gt 5) { Convert-ToNumber $row[5] } else { $null }
+    $quote.low = if ($row.Count -gt 6) { Convert-ToNumber $row[6] } else { $null }
+    $quote.strike = if ($row.Count -gt 7) { Convert-ToNumber $row[7] } else { $null }
+    $quote.trades = if ($row.Count -gt 8) { Convert-ToNumber $row[8] } else { $null }
+    $quote.expiration = if ($row.Count -gt 9) { [string]$row[9] } else { "" }
+    $quote.source = $source
+
+    $quotes[$asset] = $quote
+  }
+
+  $payload = [ordered]@{
+    updatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    workbook = $WorkbookPath
+    source = $source
+    sheet = "Sheet1"
+    columns = $headers
+    quotes = $quotes
+  }
+
+  return ($payload | ConvertTo-Json -Depth 6)
+}
+
+function Get-QuotesJsonFromWorkbookFile {
+  $stream = [IO.FileStream]::new($WorkbookPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+  $zip = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Read)
+  try {
+    $sharedStrings = @(Get-XlsxSharedStrings $zip)
+    $sheetEntry = $zip.GetEntry("xl/worksheets/sheet1.xml")
+    if ($null -eq $sheetEntry) { throw "Could not find xl/worksheets/sheet1.xml in workbook." }
+    $reader = [IO.StreamReader]::new($sheetEntry.Open())
+    try {
+      [xml]$sheetXml = $reader.ReadToEnd()
+    } finally {
+      $reader.Close()
+    }
+    $ns = [Xml.XmlNamespaceManager]::new($sheetXml.NameTable)
+    $ns.AddNamespace("x", "http://schemas.openxmlformats.org/spreadsheetml/2006/main")
+    $matrix = @()
+    foreach ($row in $sheetXml.SelectNodes("//x:sheetData/x:row", $ns)) {
+      $values = @()
+      foreach ($cell in $row.SelectNodes("x:c", $ns)) {
+        $colIndex = Convert-ExcelColumnToIndex $cell.GetAttribute("r")
+        while ($values.Count -lt $colIndex) { $values += "" }
+        $values[$colIndex - 1] = Get-XlsxCellText $cell $ns $sharedStrings
+      }
+      $matrix += ,$values
+    }
+    return New-QuotesPayloadFromMatrix $matrix "Workbook file snapshot"
+  } finally {
+    $zip.Dispose()
+    $stream.Dispose()
+  }
 }
 
 function Get-ExcelWorkbook {
@@ -131,10 +257,17 @@ function Get-CachedQuotesJson {
     $script:LastReadAt = Get-Date
     return $fresh
   } catch {
-    if ($script:LastQuotesJson) {
-      return $script:LastQuotesJson
+    try {
+      $fallback = Get-QuotesJsonFromWorkbookFile
+      $script:LastQuotesJson = $fallback
+      $script:LastReadAt = Get-Date
+      return $fallback
+    } catch {
+      if ($script:LastQuotesJson) {
+        return $script:LastQuotesJson
+      }
+      throw
     }
-    throw
   }
 }
 
