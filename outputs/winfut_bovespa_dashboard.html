@@ -1573,18 +1573,7 @@
           <div class="intent-stamp">
             <div class="intent-topline">
               <span class="badge ${model.intent.cls}">${model.intent.label}</span>
-              <div class="speedometer" title="Recommendation score: 1 strong sell, 50 wait, 100 strong buy" style="--angle:${model.gauge.angle}deg; --arc-deg:${model.gauge.arc}deg; --gauge-color:var(--${model.gauge.cls === "buy" ? "green" : model.gauge.cls === "sell" ? "red" : "amber"})">
-                <span class="gauge-fill"></span>
-                <span class="gauge-ticks"></span>
-                <span class="gauge-pivot"></span>
-                <span class="gauge-label strong-sell ${model.gauge.band === "strong-sell" ? "active" : ""}">Strong sell</span>
-                <span class="gauge-label sell ${model.gauge.band === "sell" ? "active" : ""}">Sell bias</span>
-                <span class="gauge-label wait ${model.gauge.band === "wait" ? "active" : ""}">Wait</span>
-                <span class="gauge-label buy ${model.gauge.band === "buy" ? "active" : ""}">Buy bias</span>
-                <span class="gauge-label strong-buy ${model.gauge.band === "strong-buy" ? "active" : ""}">Strong buy</span>
-                <b>${model.gauge.grade}</b>
-                <span class="gauge-caption">${model.gauge.label}</span>
-              </div>
+              <span class="badge ${model.gauge.cls}">${model.gauge.grade}/100 ${model.gauge.label}</span>
             </div>
             <span class="stamp" data-intent-duration="${model.asset}">since ${model.intentSince.sinceText} (${formatDuration(Date.now() - model.intentSince.since)})</span>
           </div>
@@ -1596,8 +1585,6 @@
             <p class="tiny" style="margin:6px 0 0;">Updated ${model.row.time || "--"} | True range ${fmt(model.trueRange, precision)}</p>
           </div>
         </div>
-        <canvas data-score-chart="${model.asset}" aria-label="${model.asset} 21-day intent index chart"></canvas>
-        <canvas data-chart="${model.asset}" aria-label="${model.asset} intraday price chart"></canvas>
         <div class="trade-plan">
           <div class="plan-head">
             <h3>Price Suggestions</h3>
@@ -1725,10 +1712,6 @@
           </table>
         </div>
       `;
-      setTimeout(() => {
-        drawScoreIndexChart(div.querySelector(`[data-score-chart="${model.asset}"]`), model.asset, model.total);
-        drawChart(div.querySelector(`[data-chart="${model.asset}"]`), history[model.asset], color);
-      }, 0);
       return div;
     }
 
