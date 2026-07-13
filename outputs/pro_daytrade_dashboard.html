@@ -795,6 +795,7 @@
     const dailyScoreHistory = loadDailyScoreHistory();
     const historicalMarket = { loaded: false, source: "local session", bias: 0, exhaustion: 0, details: [] };
     const manualTrades = loadManualTrades();
+    const entrySuggestionCache = loadEntrySuggestionCache();
     const TIMEFRAMES = [
       { key: "5m", label: "5 min", lookbackMs: 5 * 60 * 1000, weight: 1.15 },
       { key: "15m", label: "15 min", lookbackMs: 15 * 60 * 1000, weight: 1.0 },
@@ -904,6 +905,21 @@
     function saveDailyScoreHistory() {
       try {
         localStorage.setItem(dailyScoreStorageKey(), JSON.stringify(dailyScoreHistory.slice(-21)));
+      } catch {}
+    }
+
+    function loadEntrySuggestionCache() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem("dde-entry-suggestions-15m-v1") || "{}");
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveEntrySuggestionCache() {
+      try {
+        localStorage.setItem("dde-entry-suggestions-15m-v1", JSON.stringify(entrySuggestionCache));
       } catch {}
     }
 
@@ -1442,58 +1458,61 @@
     function buildEntryHypotheses(model) {
       const profile = planProfile(model.asset);
       const tf15 = model.timeframes.find((tf) => tf.key === "15m") || model.timeframes[0];
+      const candle15 = tf15?.candle || candleFromHistory(model.asset, 15 * 60 * 1000, model.last);
+      const cacheKey = `${model.asset}-${candle15.closedEnd || 0}`;
+      if (entrySuggestionCache[model.asset]?.key === cacheKey && Array.isArray(entrySuggestionCache[model.asset].rows)) {
+        return entrySuggestionCache[model.asset].rows;
+      }
       const range = Math.max(profile.tick * profile.minRangeTicks, model.trueRange || profile.tick * 20);
       const structure = tf15?.structure || nearestStructure(model.asset, model.last, range, model);
       const external = externalReferenceBias(model.asset);
       const candidates = [
-        { side: "BUY", direction: 1, anchor: structure.support, fallback: Math.min(model.last, Math.max(model.low || model.last, (model.vwap || model.last) - range * 0.08)) },
-        { side: "SELL", direction: -1, anchor: structure.resistance, fallback: Math.max(model.last, Math.min(model.high || model.last, (model.vwap || model.last) + range * 0.08)) }
+        { side: "BUY", direction: 1, triggerBase: candle15.high + Math.max(profile.tick, candle15.range * 0.04), structureDistance: structure.resistanceDistance, structureLabel: "break above previous 15m high" },
+        { side: "SELL", direction: -1, triggerBase: candle15.low - Math.max(profile.tick, candle15.range * 0.04), structureDistance: structure.supportDistance, structureLabel: "break below previous 15m low" }
       ];
 
-      return candidates.map((candidate) => {
-        const rawAnchor = Number.isFinite(candidate.anchor) ? candidate.anchor : candidate.fallback;
-        const currentDistance = (rawAnchor - model.last) * candidate.direction;
-        const pullback = candidate.direction > 0
-          ? Math.min(model.last, rawAnchor + range * 0.04)
-          : Math.max(model.last, rawAnchor - range * 0.04);
-        const entry = roundedToTick(Number.isFinite(rawAnchor) ? pullback : candidate.fallback, profile.tick);
-        const plan = buildPlanFromEntry(model.asset, candidate.side, entry, model);
-        const rr = Math.abs(plan.target1 - plan.entry) / Math.max(profile.tick, Math.abs(plan.entry - plan.stop));
+      const rows = candidates.map((candidate) => {
         const tfScore = (tf15?.score || 0) * candidate.direction;
         const liveScore = model.total * candidate.direction;
         const candleScore = (tf15?.candleRead?.bias || 0) * candidate.direction;
-        const supportScore = candidate.side === "BUY"
-          ? clamp(24 - Math.abs(structure.supportDistance || 24), -8, 24)
-          : clamp(24 - Math.abs(structure.resistanceDistance || 24), -8, 24);
-        const waitBonus = currentDistance > 0 ? clamp(currentDistance / Math.max(profile.tick, range) * 22, 0, 16) : 0;
+        const closeLocation = candle15.range ? ((candle15.close - candle15.low) / candle15.range) : 0.5;
+        const closeForce = candidate.side === "BUY" ? (closeLocation - 0.5) * 24 : (0.5 - closeLocation) * 24;
+        const structureScore = Number.isFinite(candidate.structureDistance) ? clamp(18 - Math.abs(candidate.structureDistance), -8, 18) : 0;
         const exhaustionPenalty = Math.max(0, (model.trend?.exhaustion || 0) - 70) * 0.18;
-        const raw = 50 + tfScore * 0.32 + liveScore * 0.20 + candleScore * 0.8 + supportScore + waitBonus + external.score + clamp((rr - 1) * 16, -8, 18) - exhaustionPenalty;
-        const likelihood = clamp(Math.round(raw), 1, 100);
-        const gap = Math.max(0, 85 - likelihood);
-        const saferEntry = candidate.direction > 0
-          ? roundedToTick(entry - gap * profile.tick * 0.35, profile.tick)
-          : roundedToTick(entry + gap * profile.tick * 0.35, profile.tick);
-        const safePlan = buildPlanFromEntry(model.asset, candidate.side, saferEntry, model);
+        const provisionalPlan = buildPlanFromEntry(model.asset, candidate.side, roundedToTick(candidate.triggerBase, profile.tick), model);
+        const provisionalRr = Math.abs(provisionalPlan.target1 - provisionalPlan.entry) / Math.max(profile.tick, Math.abs(provisionalPlan.entry - provisionalPlan.stop));
+        const baseRaw = 50 + tfScore * 0.34 + liveScore * 0.16 + candleScore * 0.72 + closeForce + structureScore + external.score + clamp((provisionalRr - 1) * 14, -8, 18) - exhaustionPenalty;
+        const baseLikelihood = clamp(Math.round(baseRaw), 1, 100);
+        const needed = Math.max(0, 85 - baseLikelihood);
+        const confirmationTicks = Math.ceil(needed / 1.6);
+        const trigger = roundedToTick(candidate.triggerBase + candidate.direction * confirmationTicks * profile.tick, profile.tick);
+        const plan = buildPlanFromEntry(model.asset, candidate.side, trigger, model);
+        const rr = Math.abs(plan.target1 - plan.entry) / Math.max(profile.tick, Math.abs(plan.entry - plan.stop));
+        const likelihood = clamp(Math.round(baseRaw + confirmationTicks * 1.6 + clamp((rr - provisionalRr) * 6, -4, 4)), 1, 100);
         return {
           side: candidate.side,
           likelihood,
-          safeEntry: saferEntry,
-          nowEntry: entry,
-          plan: safePlan,
+          safeEntry: trigger,
+          nowEntry: roundedToTick(candidate.triggerBase, profile.tick),
+          plan,
           rr,
           ready: likelihood >= 85,
-          note: likelihood >= 85
-            ? "85% threshold is already satisfied by the 15-minute setup."
-            : `Wait for price closer to ${candidate.side === "BUY" ? "support" : "resistance"} to improve the entry suggestion.`,
+          candleEnd: candle15.closedEnd,
+          refreshedAt: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+          note: `Trigger requires ${candidate.structureLabel}. It refreshes only after the next 15-minute candle closes.`,
           components: [
             ["15m", Math.round(tfScore), tf15?.candleRead?.label || "15m read"],
             ["Live", Math.round(liveScore), model.intent.label],
-            ["Structure", Math.round(supportScore), candidate.side === "BUY" ? "support anchor" : "resistance anchor"],
+            ["Candle Close", Math.round(closeForce), `previous 15m close ${fmt(candle15.close, profile.precision)}`],
+            ["Structure", Math.round(structureScore), candidate.structureLabel],
             ["External", Math.round(external.score), external.note],
             ["R:R", Math.round((rr - 1) * 16), `R:R ${fmt(rr, 2)}`]
           ]
         };
       });
+      entrySuggestionCache[model.asset] = { key: cacheKey, rows };
+      saveEntrySuggestionCache();
+      return rows;
     }
 
     function scoreTrendStats(asset, currentScore) {
@@ -1817,7 +1836,7 @@
       return `<div class="manual-panel">
         <div class="plan-head">
           <h3>85% Entry Suggestions</h3>
-          <span class="stamp">15 min anchor + external references</span>
+          <span class="stamp">refreshes after each closed 15 min candle</span>
         </div>
         <div class="hypothesis-grid">
           ${rows.map((item) => `<div class="hypothesis-card">
@@ -1826,7 +1845,7 @@
               <span class="badge ${item.ready ? "buy" : item.likelihood < 55 ? "sell" : "wait"}">${item.likelihood}%</span>
             </div>
             <strong>${fmt(item.safeEntry, precision)}</strong>
-            <p class="tiny" style="margin:0;">Safe ${item.side} entry candidate. Current-trigger estimate ${fmt(item.nowEntry, precision)}.</p>
+            <p class="tiny" style="margin:0;">Force-confirmation ${item.side} entry. Base 15m trigger ${fmt(item.nowEntry, precision)}.</p>
             <div class="levels">
               <div class="level"><span>Partial</span><b>${fmt(item.plan.partial, precision)}</b></div>
               <div class="level"><span>Target 1</span><b>${fmt(item.plan.target1, precision)}</b></div>
@@ -1835,12 +1854,13 @@
               <div class="level"><span>R:R</span><b>${fmt(item.rr, 2)}</b></div>
             </div>
             <p class="tiny" style="margin:0;">${item.note}</p>
+            <p class="tiny" style="margin:0;">Based on candle closed ${item.candleEnd ? new Date(item.candleEnd).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "--"} | refreshed ${item.refreshedAt || "--"}.</p>
             <div class="mini-grid">
               ${item.components.map((part) => `<div class="metric"><span>${part[0]}</span><b>${signed(part[1], 0)}</b><small class="level-note">${part[2]}</small></div>`).join("")}
             </div>
           </div>`).join("")}
         </div>
-        <p class="tiny" style="margin:0;">These are daytrade entry suggestions, not order signals. They blend Profit DDE, the 15-minute candle/structure read, saved intraday history, Stooq daily history when reachable, and Yahoo proxy references when available.</p>
+        <p class="tiny" style="margin:0;">These are daytrade entry suggestions, not order signals. They refresh every 15 minutes after a candle closes and mark the price that would need to trade to show directional force.</p>
       </div>`;
     }
 
