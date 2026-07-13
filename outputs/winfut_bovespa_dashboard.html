@@ -520,6 +520,31 @@
       font-size: 0.78rem;
     }
 
+    .trade-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+
+    .trade-table th,
+    .trade-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 6px 4px;
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    .trade-table th {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .trade-table td:last-child,
+    .trade-table th:last-child {
+      text-align: right;
+    }
+
     canvas {
       display: block;
       width: 100%;
@@ -943,6 +968,39 @@
       return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
     }
 
+    function normalizeManualEntries(asset) {
+      const saved = manualTrades[asset];
+      if (!saved) return [];
+      const source = Array.isArray(saved.entries) ? saved.entries : [saved];
+      return source
+        .map((entry, index) => ({
+          id: entry.id || `${asset}-${entry.openedAt || Date.now()}-${index}`,
+          side: entry.side,
+          entry: Number(entry.entry),
+          quantity: Math.max(1, Math.floor(Number(entry.quantity) || 1)),
+          openedAt: entry.openedAt || "--",
+          trailingStop: Number(entry.trailingStop)
+        }))
+        .filter((entry) => Number.isFinite(entry.entry) && ["BUY", "SELL"].includes(entry.side));
+    }
+
+    function getManualTradeRecord(asset) {
+      const saved = manualTrades[asset];
+      if (saved && Array.isArray(saved.entries)) return saved;
+      const entries = normalizeManualEntries(asset);
+      return entries.length ? { entries, combinedTrailingStop: Number(saved?.combinedTrailingStop) } : { entries: [] };
+    }
+
+    function sameSideAverage(entries) {
+      if (!entries.length) return null;
+      const side = entries[0].side;
+      if (entries.some((entry) => entry.side !== side)) return null;
+      const quantity = entries.reduce((sum, entry) => sum + entry.quantity, 0);
+      if (!quantity) return null;
+      const entry = entries.reduce((sum, item) => sum + item.entry * item.quantity, 0) / quantity;
+      return { side, entry, quantity, openedAt: entries[0].openedAt };
+    }
+
     function roundedToTick(value, tick) {
       if (!Number.isFinite(value)) return null;
       return Math.round(value / tick) * tick;
@@ -1178,9 +1236,7 @@
       return { quantity: qty, partial, target1, target2, note: "Suggested split: reduce risk at partial, realize more at target 1, trail the runner to target 2." };
     }
 
-    function buildManualTracker(model) {
-      const saved = manualTrades[model.asset];
-      if (!saved || !Number.isFinite(saved.entry) || !["BUY", "SELL"].includes(saved.side)) return null;
+    function evaluateManualTrade(model, saved) {
       const plan = buildPlanFromEntry(model.asset, saved.side, saved.entry, model);
       const contracts = contractPlan(saved.quantity);
       const isShort = plan.side === "SELL";
@@ -1220,12 +1276,37 @@
       if (hasPriorTrail) {
         trailingStop = roundedToTick(isShort ? Math.min(trailingStop, priorTrailingStop) : Math.max(trailingStop, priorTrailingStop), tick);
       }
-      if (!hasPriorTrail || Math.abs(trailingStop - priorTrailingStop) >= tick * 0.5) {
-        manualTrades[model.asset] = { ...saved, trailingStop };
-        saveManualTrades();
-      }
       const likelihood = manualOperationLikelihood(model, plan, progress, stopped, hitPartial, hitTarget1, hitTarget2);
       return { ...plan, action, cls, progress: Math.round(progress), openedAt: saved.openedAt, contracts, trailingStop, trailingStage, trailingText, winLikelihood: likelihood.win, lossLikelihood: likelihood.loss, rr: likelihood.rr };
+    }
+
+    function buildManualTracker(model) {
+      const record = getManualTradeRecord(model.asset);
+      const entries = record.entries || [];
+      if (!entries.length) return null;
+      let changed = false;
+      const legs = entries.map((entry) => {
+        const evaluated = evaluateManualTrade(model, entry);
+        if (!Number.isFinite(entry.trailingStop) || Math.abs(evaluated.trailingStop - entry.trailingStop) >= (model.asset === "WINFUT" ? 2.5 : 0.25)) {
+          entry.trailingStop = evaluated.trailingStop;
+          changed = true;
+        }
+        return { ...evaluated, id: entry.id };
+      });
+      const average = sameSideAverage(entries);
+      let combined = null;
+      if (average) {
+        combined = evaluateManualTrade(model, { ...average, trailingStop: Number(record.combinedTrailingStop) });
+        if (!Number.isFinite(record.combinedTrailingStop) || Math.abs(combined.trailingStop - record.combinedTrailingStop) >= (model.asset === "WINFUT" ? 2.5 : 0.25)) {
+          record.combinedTrailingStop = combined.trailingStop;
+          changed = true;
+        }
+      }
+      if (changed || !Array.isArray(manualTrades[model.asset]?.entries)) {
+        manualTrades[model.asset] = { ...record, entries };
+        saveManualTrades();
+      }
+      return { entries: legs, combined, mixed: !average && entries.length > 1 };
     }
 
     function operationOdds(total, timeframes, trend) {
@@ -1587,6 +1668,52 @@
       ctx.fillText(`Now ${signed(last.score, 0)}`, Math.max(pad.left, w - 92), 13);
     }
 
+    function operationTrackerCard(model, precision) {
+      const manual = model.manual;
+      const combined = manual?.combined;
+      const rows = manual?.entries || [];
+      const combinedHtml = combined ? `<div class="levels">
+          <div class="level"><span>Combined Side</span><b>${combined.side}</b></div>
+          <div class="level"><span>Avg Entry</span><b>${fmt(combined.entry, precision)}</b></div>
+          <div class="level"><span>Total Contracts</span><b>${combined.contracts.quantity}</b></div>
+          <div class="level"><span>Partial</span><b>${fmt(combined.partial, precision)}</b><small class="level-note">${combined.contracts.partial} contracts</small></div>
+          <div class="level"><span>Target 1</span><b>${fmt(combined.target1, precision)}</b><small class="level-note">${combined.contracts.target1} contracts</small></div>
+          <div class="level"><span>Target 2</span><b>${fmt(combined.target2, precision)}</b><small class="level-note">${combined.contracts.target2} contracts</small></div>
+          <div class="level"><span>Stop</span><b>${fmt(combined.stop, precision)}</b></div>
+          <div class="level"><span>Trailing Stop</span><b>${fmt(combined.trailingStop, precision)}</b><small class="level-note">${combined.trailingStage}</small></div>
+          <div class="level"><span>Win / Loss</span><b>${combined.winLikelihood}% / ${combined.lossLikelihood}%</b></div>
+          <div class="level"><span>Action</span><b>${combined.action}</b></div>
+        </div>
+        <p class="tiny" style="margin:0;">${combined.contracts.note} ${combined.trailingText}</p>`
+        : `<p class="tiny" style="margin:0;">${manual?.mixed ? "Mixed BUY and SELL entries are shown separately. Combined average is available when all active entries use the same side." : "Add entries to track active trades and combined average targets."}</p>`;
+      const rowsHtml = rows.length ? `<table class="trade-table">
+          <thead><tr><th>Leg</th><th>Side</th><th>Qty</th><th>Entry</th><th>Stop</th><th>T1</th><th>Trail</th><th>Action</th></tr></thead>
+          <tbody>${rows.map((row, index) => `<tr>
+            <td>${index + 1}</td>
+            <td>${row.side}</td>
+            <td>${row.contracts.quantity}</td>
+            <td>${fmt(row.entry, precision)}</td>
+            <td>${fmt(row.stop, precision)}</td>
+            <td>${fmt(row.target1, precision)}</td>
+            <td>${fmt(row.trailingStop, precision)}</td>
+            <td><span class="badge ${row.cls}">${row.action}</span></td>
+          </tr>`).join("")}</tbody>
+        </table>` : "";
+      return `<div class="manual-panel">
+        <div class="plan-head">
+          <h3>Operation Tracker</h3>
+          <span class="badge ${combined?.cls || "info"}">${combined ? `${combined.progress}% progress` : "READY"}</span>
+        </div>
+        <div class="manual-actions">
+          <button data-manual-entry="${model.asset}" data-side="BUY">Add BUY Entry</button>
+          <button data-manual-entry="${model.asset}" data-side="SELL">Add SELL Entry</button>
+          <button data-manual-clear="${model.asset}">Clear Trades</button>
+        </div>
+        ${combinedHtml}
+        ${rowsHtml}
+      </div>`;
+    }
+
     function renderAssetCard(model) {
       const div = document.createElement("article");
       div.className = "panel intent-card";
@@ -1628,6 +1755,7 @@
             </div>`).join("")}
           </div>
         </div>
+        ${operationTrackerCard(model, precision)}
         ${externalCandleCard(model.asset, precision)}
       `;
       return div;
@@ -1766,7 +1894,8 @@
           alert("Invalid entry price.");
           return;
         }
-        const existingQty = manualTrades[asset]?.quantity;
+        const existingEntries = normalizeManualEntries(asset);
+        const existingQty = existingEntries.at(-1)?.quantity;
         const qtyRaw = prompt(`${asset} contracts quantity`, Number.isFinite(existingQty) ? String(existingQty) : "1");
         if (qtyRaw === null) return;
         const quantity = parseContractQuantity(qtyRaw);
@@ -1774,11 +1903,17 @@
           alert("Invalid contract quantity.");
           return;
         }
-        manualTrades[asset] = {
+        const record = getManualTradeRecord(asset);
+        const entryRecord = {
+          id: `${asset}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           side,
           entry,
           quantity,
           openedAt: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+        };
+        manualTrades[asset] = {
+          ...record,
+          entries: [...(record.entries || []), entryRecord]
         };
         saveManualTrades();
         if (lastPayload) renderFromPayload(lastPayload);
