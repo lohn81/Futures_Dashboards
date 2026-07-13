@@ -9,8 +9,8 @@ $script:LastReadAt = [DateTime]::MinValue
 $script:CacheMs = 900
 $script:LastTradingViewJson = $null
 $script:LastTradingViewReadAt = [DateTime]::MinValue
-$script:TradingViewCacheMs = 3600000
-$script:TradingViewHistoryPath = Join-Path $PSScriptRoot "tradingview_hourly_snapshots.json"
+$script:TradingViewCacheMs = 60000
+$script:TradingViewHistoryPath = Join-Path $PSScriptRoot "tradingview_minute_snapshots.json"
 
 function Convert-ToNumber($value) {
   if ($null -eq $value) { return $null }
@@ -312,7 +312,7 @@ function Invoke-TradingViewChartSnapshot($asset, $symbol, $url) {
     capturedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     scanner = $scanner
     page = $page
-    note = "TradingView chart pages are used as hourly reference snapshots. They are not an official API and may not expose candle data to scripts."
+    note = "TradingView chart pages are used as one-minute reference snapshots. They are not an official API and may not expose candle data to scripts."
   }
 }
 
@@ -344,8 +344,8 @@ function Get-TradingViewSnapshotsJson {
 
   $payload = [ordered]@{
     updatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    cacheSeconds = 3600
-    caveat = "TradingView is not treated as an official API. Scanner values are used only when TradingView returns them; chart pages are stored as hourly reference snapshots."
+    cacheSeconds = 60
+    caveat = "TradingView is not treated as an official API. Scanner values are used only when TradingView returns them; chart pages are stored as one-minute reference snapshots."
     latest = $latest
     history = $history
   }

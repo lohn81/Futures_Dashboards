@@ -1848,8 +1848,8 @@
       const item = tradingViewSnapshots?.[model.asset];
       if (!item) {
         return `<div class="manual-panel">
-          <div class="plan-head"><h3>TradingView Hourly Snapshot</h3><span class="badge wait">LOADING</span></div>
-          <p class="tiny" style="margin:0;">Waiting for hourly TradingView reference fetch.</p>
+          <div class="plan-head"><h3>TradingView 1-Min Snapshot</h3><span class="badge wait">LOADING</span></div>
+          <p class="tiny" style="margin:0;">Waiting for one-minute TradingView reference fetch.</p>
         </div>`;
       }
       const scanner = item.scanner || {};
@@ -1858,7 +1858,7 @@
       const historyCount = tradingViewHistory.filter((row) => row.asset === model.asset).length;
       return `<div class="manual-panel">
         <div class="plan-head">
-          <h3>TradingView Hourly Snapshot</h3>
+          <h3>TradingView 1-Min Snapshot</h3>
           <span class="badge ${cls}">${scanner.status === "ok" ? "SCANNER" : page.status === "ok" ? "PAGE OK" : "LIMITED"}</span>
         </div>
         <div class="levels">
@@ -1866,7 +1866,7 @@
           <div class="level"><span>Last TV Close</span><b>${Number.isFinite(scanner.close) ? fmt(scanner.close, precision) : "--"}</b></div>
           <div class="level"><span>TV Change</span><b>${Number.isFinite(scanner.change) ? signed(scanner.change, 2) + "%" : "--"}</b></div>
           <div class="level"><span>TV RSI</span><b>${Number.isFinite(scanner.rsi) ? fmt(scanner.rsi, 1) : "--"}</b></div>
-          <div class="level"><span>Hourly Samples</span><b>${historyCount}</b></div>
+          <div class="level"><span>1-Min Samples</span><b>${historyCount}</b></div>
         </div>
         <p class="tiny" style="margin:0;">Captured ${item.capturedAt || "--"}. ${scanner.error || page.error || item.note || ""}</p>
       </div>`;
@@ -2011,7 +2011,7 @@
 
     async function loadTradingViewSnapshots(force = false) {
       const now = Date.now();
-      if (!force && now - tradingViewSnapshotsAt < 3600000) return;
+      if (!force && now - tradingViewSnapshotsAt < 60000) return;
       try {
         const response = await fetch("/api/tradingview-snapshots", { cache: "no-store" });
         if (!response.ok) throw new Error(`TradingView snapshots ${response.status}`);
@@ -2049,7 +2049,7 @@
       }
       notes.push("Aggression, VWAP, HiLo, RSI, stochastic, DI, and money-flow columns are now live inputs.");
       notes.push(`${historicalMarket.source}: ${historicalMarket.loaded ? `daily confirmation loaded for ${historicalMarket.details.map((item) => item.name).join(", ")}.` : "using local DDE session until public daily history is reachable."}`);
-      notes.push("TradingView WIN1!/WDO1! chart pages are fetched by the bridge once per hour as reference snapshots; scanner values are used only if TradingView returns them.");
+      notes.push("TradingView WIN1!/WDO1! chart pages are fetched by the bridge once per minute as reference snapshots; scanner values are used only if TradingView returns them.");
       notes.push("Fields not present in Excel are no longer estimated; the dashboard scores what Profit exports.");
       document.getElementById("globalNotes").innerHTML = notes.map((note, index) => `<li><span class="dot" style="background:${index ? "var(--blue)" : "var(--amber)"}"></span><span>${note}</span></li>`).join("");
     }
