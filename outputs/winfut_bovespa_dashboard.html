@@ -861,6 +861,38 @@
       return day.getTime();
     }
 
+    function openingRangeStartTime() {
+      const now = new Date();
+      const day = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      day.setHours(9, 0, 0, 0);
+      return day.getTime();
+    }
+
+    function buildOpeningRangeMap(asset, precision) {
+      const start = openingRangeStartTime();
+      const end = start + 5 * 60 * 1000 - 1;
+      const points = (history[asset] || []).filter((point) => Number.isFinite(point?.price) && point.t >= start && point.t <= end);
+      if (!points.length) {
+        return { ready: false, note: "Waiting for 9:00:00-9:04:59 captured ticks. Keep the bridge running during that window." };
+      }
+      const prices = points.map((point) => point.price);
+      const high = Math.max(...prices);
+      const low = Math.min(...prices);
+      const amplitude = high - low;
+      if (!Number.isFinite(amplitude) || amplitude <= 0) {
+        return { ready: false, note: "Opening range captured, but amplitude is still flat." };
+      }
+      const fmtLevel = (mark) => fmt(low + amplitude * (mark / 100), precision);
+      return {
+        ready: true,
+        low,
+        high,
+        amplitude,
+        sell: [175, 275, 375].map((mark) => ({ mark, price: low + amplitude * (mark / 100), text: fmtLevel(mark) })),
+        buy: [-75, -175, -275].map((mark) => ({ mark, price: low + amplitude * (mark / 100), text: fmtLevel(mark) }))
+      };
+    }
+
     function loadManualTrades() {
       try {
         const parsed = JSON.parse(localStorage.getItem("dde-manual-trades") || "{}");
@@ -1534,6 +1566,7 @@
       div.className = "panel intent-card";
       const color = model.intent.cls === "buy" ? "var(--green)" : model.intent.cls === "sell" ? "var(--red)" : "var(--blue)";
       const precision = model.asset === "WINFUT" ? 0 : 1;
+      const openingRange = buildOpeningRangeMap(model.asset, precision);
       div.innerHTML = `
         <div class="section-title">
           <h2>${model.asset}</h2>
@@ -1581,6 +1614,21 @@
         <div class="odds-grid">
           <div class="trend-card"><span>Likelihood to Gain</span><b>${model.odds.gain}%</b><p class="tiny" style="margin:6px 0 0;">Estimated from score strength, timeframe agreement, and exhaustion risk.</p></div>
           <div class="trend-card"><span>Likelihood to Loss</span><b>${model.odds.loss}%</b><p class="tiny" style="margin:6px 0 0;">Higher when signals conflict or move looks stretched.</p></div>
+        </div>
+        <div class="manual-panel">
+          <div class="plan-head">
+            <h3>9:00 Opening Range Map</h3>
+            <span class="badge ${openingRange.ready ? "info" : "wait"}">${openingRange.ready ? `Amp ${fmt(openingRange.amplitude, precision)}` : "WAITING"}</span>
+          </div>
+          ${openingRange.ready ? `<div class="levels">
+            <div class="level"><span>0% low</span><b>${fmt(openingRange.low, precision)}</b></div>
+            <div class="level"><span>100% high</span><b>${fmt(openingRange.high, precision)}</b></div>
+            ${openingRange.sell.map((zone) => `<div class="level"><span>Sell @ ${zone.mark}%</span><b>${zone.text}</b><small class="level-note">trend up projection</small></div>`).join("")}
+          </div>
+          <div class="levels">
+            ${openingRange.buy.map((zone) => `<div class="level"><span>Buy @ ${zone.mark}%</span><b>${zone.text}</b><small class="level-note">sell-side mirror</small></div>`).join("")}
+          </div>
+          <p class="tiny" style="margin:0;">Uses the first 5 minutes of negotiation, from 9:00:00 to 9:04:59 BRT. Low is 0%, high is 100%.</p>` : `<p class="tiny" style="margin:0;">${openingRange.note}</p>`}
         </div>
         <div class="manual-panel">
           <div class="plan-head">
