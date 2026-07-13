@@ -1749,24 +1749,20 @@
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, w, h);
       const pad = { left: 42, right: 14, top: 22, bottom: 30 };
-      const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-      const rows = dailyScoreHistory.slice(-21).map((row) => ({ ...row }));
-      let todayRow = rows.find((row) => row.date === today);
-      if (!todayRow) {
-        todayRow = { date: today };
-        rows.push(todayRow);
-      }
-      if (Number.isFinite(currentScore)) todayRow[asset] = Math.round(currentScore);
-      const series = rows
-        .filter((row) => Number.isFinite(row[asset]))
-        .map((row) => ({ date: row.date, score: clamp(Number(row[asset]), -100, 100) }))
-        .slice(-21);
-      const x = (index) => pad.left + (series.length <= 1 ? 0.5 : index / (series.length - 1)) * (w - pad.left - pad.right);
+      const openAt = marketOpenTime();
+      const now = Date.now();
+      const points = (scoreHistory[asset] || []).filter((point) => Number.isFinite(point?.score) && Number.isFinite(point?.t) && point.t >= openAt);
+      const series = points.length > 1 ? points : [
+        { t: openAt, score: Number.isFinite(currentScore) ? currentScore : 0 },
+        { t: now, score: Number.isFinite(currentScore) ? currentScore : 0 }
+      ];
+      const endAt = Math.max(now, series.at(-1)?.t || now, openAt + 60 * 60 * 1000);
+      const x = (t) => pad.left + clamp((t - openAt) / Math.max(1, endAt - openAt), 0, 1) * (w - pad.left - pad.right);
       const y = (scoreValue) => pad.top + (1 - ((scoreValue + 100) / 200)) * (h - pad.top - pad.bottom);
       ctx.strokeStyle = "#d8ded8";
       ctx.fillStyle = "#647174";
       ctx.font = "12px Inter, sans-serif";
-      ctx.fillText(`${asset} intent index - last 21 trading days`, pad.left, 13);
+      ctx.fillText(`${asset} intent index - today from 08:55 BRT`, pad.left, 13);
       [-100, -50, 0, 50, 100].forEach((level) => {
         const yy = y(level);
         ctx.beginPath();
@@ -1779,7 +1775,7 @@
       });
       if (!series.length) {
         ctx.fillStyle = "#647174";
-        ctx.fillText("Waiting for score snapshots.", pad.left, h / 2);
+        ctx.fillText("Waiting for live intent snapshots.", pad.left, h / 2);
         return;
       }
       ctx.lineWidth = 2.5;
@@ -1789,20 +1785,20 @@
         const avg = (prev.score + point.score) / 2;
         ctx.strokeStyle = avg >= 35 ? "#16845a" : avg <= -35 ? "#b23e3e" : "#b7791f";
         ctx.beginPath();
-        ctx.moveTo(x(i - 1), y(prev.score));
-        ctx.lineTo(x(i), y(point.score));
+        ctx.moveTo(x(prev.t), y(clamp(prev.score, -100, 100)));
+        ctx.lineTo(x(point.t), y(clamp(point.score, -100, 100)));
         ctx.stroke();
       }
-      series.forEach((point, index) => {
+      series.forEach((point) => {
         ctx.fillStyle = point.score >= 35 ? "#16845a" : point.score <= -35 ? "#b23e3e" : "#b7791f";
         ctx.beginPath();
-        ctx.arc(x(index), y(point.score), 4, 0, Math.PI * 2);
+        ctx.arc(x(point.t), y(clamp(point.score, -100, 100)), 3, 0, Math.PI * 2);
         ctx.fill();
       });
-      const first = series[0], last = series.at(-1);
+      const last = series.at(-1);
       ctx.fillStyle = "#647174";
-      ctx.fillText(first.date.slice(5), pad.left, h - 8);
-      ctx.fillText(last.date.slice(5), Math.max(pad.left, w - 48), h - 8);
+      ctx.fillText("08:55", pad.left, h - 8);
+      ctx.fillText(new Date(endAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }), Math.max(pad.left, w - 58), h - 8);
       ctx.fillStyle = last.score >= 35 ? "#16845a" : last.score <= -35 ? "#b23e3e" : "#b7791f";
       ctx.fillText(`Now ${signed(last.score, 0)}`, Math.max(pad.left, w - 92), 13);
     }
@@ -1980,7 +1976,7 @@
               <canvas id="price-chart-${model.asset}"></canvas>
             </div>
             <div class="manual-panel">
-              <div class="plan-head"><h3>Intent Index</h3><span class="stamp">last 21 snapshots/days</span></div>
+              <div class="plan-head"><h3>Intent Index</h3><span class="stamp">live line from 08:55 BRT</span></div>
               <canvas id="score-chart-${model.asset}"></canvas>
             </div>
           </div>
