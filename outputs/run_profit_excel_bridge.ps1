@@ -118,6 +118,104 @@ function Get-CachedQuotesJson {
   }
 }
 
+function Get-YahooFiveMinuteCandle($symbol, $targetDate) {
+  $encoded = [Uri]::EscapeDataString($symbol)
+  $url = "https://query1.finance.yahoo.com/v8/finance/chart/$encoded`?interval=1m&range=1d"
+  $headers = @{
+    "User-Agent" = "Mozilla/5.0"
+  }
+
+  try {
+    $result = Invoke-RestMethod -Uri $url -Headers $headers -TimeoutSec 8
+    $chart = $result.chart.result[0]
+    if ($null -eq $chart) {
+      return @{ status = "unavailable"; error = "No chart result returned." }
+    }
+
+    $startLocal = Get-Date -Year $targetDate.Year -Month $targetDate.Month -Day $targetDate.Day -Hour 9 -Minute 0 -Second 0
+    $endLocal = Get-Date -Year $targetDate.Year -Month $targetDate.Month -Day $targetDate.Day -Hour 9 -Minute 4 -Second 59
+    $startUnix = ([DateTimeOffset]$startLocal).ToUnixTimeSeconds()
+    $endUnix = ([DateTimeOffset]$endLocal).ToUnixTimeSeconds()
+    $timestamps = @($chart.timestamp)
+    $quote = $chart.indicators.quote[0]
+    $rows = @()
+
+    for ($i = 0; $i -lt $timestamps.Count; $i++) {
+      $t = [int64]$timestamps[$i]
+      if ($t -lt $startUnix -or $t -gt $endUnix) { continue }
+      $open = Convert-ToNumber $quote.open[$i]
+      $high = Convert-ToNumber $quote.high[$i]
+      $low = Convert-ToNumber $quote.low[$i]
+      $close = Convert-ToNumber $quote.close[$i]
+      if ($null -eq $open -or $null -eq $high -or $null -eq $low -or $null -eq $close) { continue }
+      $rows += [ordered]@{
+        time = ([DateTimeOffset]::FromUnixTimeSeconds($t).LocalDateTime).ToString("HH:mm:ss")
+        open = $open
+        high = $high
+        low = $low
+        close = $close
+      }
+    }
+
+    if (!$rows.Count) {
+      return @{ status = "no_9am_bar"; error = "No 9:00-9:04:59 bar was available from this source today." }
+    }
+
+    return [ordered]@{
+      status = "ok"
+      sourceSymbol = $symbol
+      open = $rows[0].open
+      high = ($rows | ForEach-Object { $_.high } | Measure-Object -Maximum).Maximum
+      low = ($rows | ForEach-Object { $_.low } | Measure-Object -Minimum).Minimum
+      close = $rows[-1].close
+      points = $rows.Count
+      start = $startLocal.ToString("HH:mm:ss")
+      end = $endLocal.ToString("HH:mm:ss")
+      rows = $rows
+    }
+  } catch {
+    return @{ status = "error"; error = $_.Exception.Message }
+  }
+}
+
+function Get-ExternalNineAmCandlesJson {
+  $today = Get-Date
+  $sources = @(
+    @{
+      asset = "WINFUT"
+      source = "Yahoo Finance"
+      sourceSymbol = "^BVSP"
+      label = "Ibovespa cash index proxy"
+      official = $false
+      note = "Reference only. This is not official WINFUT futures data."
+    },
+    @{
+      asset = "WDOFUT"
+      source = "Yahoo Finance"
+      sourceSymbol = "BRL=X"
+      label = "USD/BRL spot proxy"
+      official = $false
+      note = "Reference only. This is not official WDOFUT futures data."
+    }
+  )
+
+  $candles = [ordered]@{}
+  foreach ($source in $sources) {
+    $candle = Get-YahooFiveMinuteCandle $source.sourceSymbol $today
+    foreach ($key in $source.Keys) {
+      $candle[$key] = $source[$key]
+    }
+    $candles[$source.asset] = $candle
+  }
+
+  return ([ordered]@{
+    updatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    window = "09:00:00-09:04:59 BRT"
+    caveat = "Free public sources normally do not provide official 1-minute WINFUT/WDOFUT futures candles. Values here are external proxies unless marked official."
+    candles = $candles
+  } | ConvertTo-Json -Depth 8)
+}
+
 function Write-Response($context, [int]$status, [string]$contentType, [string]$body) {
   $bytes = [Text.Encoding]::UTF8.GetBytes($body)
   $context.Response.StatusCode = $status
@@ -161,6 +259,8 @@ try {
         Write-Response $context 200 "text/html; charset=utf-8" $html
       } elseif ($path -eq "/api/quotes") {
         Write-Response $context 200 "application/json; charset=utf-8" (Get-CachedQuotesJson)
+      } elseif ($path -eq "/api/external-9am-candles") {
+        Write-Response $context 200 "application/json; charset=utf-8" (Get-ExternalNineAmCandlesJson)
       } else {
         Write-Response $context 404 "text/plain; charset=utf-8" "Not found"
       }

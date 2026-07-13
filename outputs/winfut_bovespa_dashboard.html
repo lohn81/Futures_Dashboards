@@ -743,6 +743,8 @@
     let lastPayload = null;
     let liveBusy = false;
     let durationTimer = null;
+    let externalCandles = {};
+    let externalCandlesAt = 0;
 
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
     const score = (value, range) => clamp((value / range) * 100, -100, 100);
@@ -891,6 +893,30 @@
         sell: [175, 275, 375].map((mark) => ({ mark, price: low + amplitude * (mark / 100), text: fmtLevel(mark) })),
         buy: [-75, -175, -275].map((mark) => ({ mark, price: low + amplitude * (mark / 100), text: fmtLevel(mark) }))
       };
+    }
+
+    function externalCandleCard(asset, precision) {
+      const item = externalCandles?.[asset];
+      if (!item) {
+        return `<div class="manual-panel"><div class="plan-head"><h3>External 9AM Candle</h3><span class="badge wait">LOADING</span></div><p class="tiny" style="margin:0;">Checking internet/API reference sources for 9:00:00-9:04:59 BRT.</p></div>`;
+      }
+      const cls = item.status === "ok" ? "info" : "wait";
+      const source = `${item.source || "External"} ${item.sourceSymbol || ""}`.trim();
+      return `<div class="manual-panel">
+        <div class="plan-head">
+          <h3>External 9AM Candle</h3>
+          <span class="badge ${cls}">${item.official ? "OFFICIAL" : "REFERENCE"}</span>
+        </div>
+        ${item.status === "ok" ? `<div class="levels">
+          <div class="level"><span>Source</span><b>${source}</b><small class="level-note">${item.label || ""}</small></div>
+          <div class="level"><span>Open</span><b>${fmt(item.open, precision)}</b></div>
+          <div class="level"><span>High</span><b>${fmt(item.high, precision)}</b></div>
+          <div class="level"><span>Low</span><b>${fmt(item.low, precision)}</b></div>
+          <div class="level"><span>Close</span><b>${fmt(item.close, precision)}</b></div>
+          <div class="level"><span>Rows</span><b>${item.points || 0}</b></div>
+        </div>
+        <p class="tiny" style="margin:0;">${item.note || ""}</p>` : `<p class="tiny" style="margin:0;">${item.note || "External source unavailable."} ${item.error || ""}</p>`}
+      </div>`;
     }
 
     function loadManualTrades() {
@@ -1602,8 +1628,24 @@
             </div>`).join("")}
           </div>
         </div>
+        ${externalCandleCard(model.asset, precision)}
       `;
       return div;
+    }
+
+    async function loadExternalCandles(force = false) {
+      const now = Date.now();
+      if (!force && now - externalCandlesAt < 60000) return;
+      try {
+        const response = await fetch("/api/external-9am-candles", { cache: "no-store" });
+        if (!response.ok) throw new Error(`External candles ${response.status}`);
+        const payload = await response.json();
+        externalCandles = payload.candles || {};
+        externalCandlesAt = Date.now();
+        if (lastPayload) renderFromPayload(lastPayload);
+      } catch {
+        externalCandlesAt = Date.now();
+      }
     }
 
     function renderContext(models, quotes) {
@@ -1695,6 +1737,7 @@
       if (liveTimer) clearInterval(liveTimer);
       if (durationTimer) clearInterval(durationTimer);
       pollLiveBridge();
+      loadExternalCandles();
       liveTimer = setInterval(pollLiveBridge, 1000);
       durationTimer = setInterval(refreshIntentDurations, 1000);
     }
@@ -1758,6 +1801,7 @@
     document.getElementById("globalNotes").innerHTML = `<li><span class="dot"></span><span>Start the bridge and open this page from http://127.0.0.1:8765/. The dashboard now connects automatically.</span></li>`;
     document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
     loadHistoricalContext().catch(() => {});
+    loadExternalCandles(true);
     startLivePolling();
   </script>
 </body>
