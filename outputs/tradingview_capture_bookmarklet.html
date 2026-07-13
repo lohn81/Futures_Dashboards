@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TradingView 15m Capture Helper</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1c2528; background: #f4f6f3; }
+    body { margin: 0; padding: 24px; }
+    main { max-width: 900px; margin: 0 auto; display: grid; gap: 16px; }
+    .panel { background: #fff; border: 1px solid #d8ded8; border-radius: 8px; box-shadow: 0 12px 28px rgba(28,37,40,.08); padding: 18px; }
+    h1 { margin: 0 0 8px; font-size: clamp(1.4rem, 2vw, 2rem); }
+    p, li { color: #647174; line-height: 1.5; }
+    a.button, button { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid #1c2528; background: #1c2528; color: #fff; text-decoration: none; font-weight: 800; cursor: pointer; }
+    textarea { width: 100%; min-height: 190px; border: 1px solid #d8ded8; border-radius: 8px; padding: 12px; font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; color: #1c2528; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    code { background: #edf1ed; padding: 2px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="panel">
+      <h1>TradingView 15m Capture Helper</h1>
+      <p>Open your logged-in TradingView chart with <code>&interval=15</code>, then run this helper from that TradingView tab. It captures WIN1!/WDO1! OHLC, change, and volume once per minute into the local dashboard bridge.</p>
+      <div class="row">
+        <a class="button" id="bookmarklet" href="#">TradingView 15m Capture</a>
+        <button id="copy">Copy bookmarklet</button>
+        <span id="status"></span>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Manual script</h2>
+      <p>If the bookmarklet is blocked, paste this into the TradingView page console after the 15m chart is loaded.</p>
+      <textarea id="code" readonly></textarea>
+    </section>
+  </main>
+  <script>
+    const captureCode = `(() => {
+  const endpoint = "http://127.0.0.1:8765/api/tradingview-browser-capture";
+  const parseBR = (value) => {
+    if (value == null) return null;
+    let text = String(value).trim().replace(/\\s/g, "").replace("−", "-");
+    let mult = 1;
+    if (/k$/i.test(text)) { mult = 1000; text = text.slice(0, -1); }
+    if (/m$/i.test(text)) { mult = 1000000; text = text.slice(0, -1); }
+    if (/^-?\\d{1,3}(\\.\\d{3})+(,\\d+)?$/.test(text)) text = text.replace(/\\./g, "").replace(",", ".");
+    else text = text.replace(",", ".");
+    const num = Number(text);
+    return Number.isFinite(num) ? num * mult : null;
+  };
+  const detect = () => {
+    const text = document.body.innerText.replace(/\\s+/g, " ");
+    const title = document.title || "";
+    const url = location.href;
+    const activeHint = title + " " + url;
+    const symbol = /WDO1!/i.test(activeHint) ? "BMFBOVESPA:WDO1!" : /WIN1!/i.test(activeHint) ? "BMFBOVESPA:WIN1!" : /WDO1!/i.test(text) ? "BMFBOVESPA:WDO1!" : /WIN1!/i.test(text) ? "BMFBOVESPA:WIN1!" : "";
+    const asset = /WIN1!/i.test(symbol) ? "WINFUT" : /WDO1!/i.test(symbol) ? "WDOFUT" : "";
+    const interval = /interval=15/.test(url) || /\\b15m\\b|15 minutos/i.test(text) ? "15m" : "";
+    const ohlc = text.match(/Abr\\s*([\\d.,]+).*?Máx\\.?\\s*([\\d.,]+).*?Mín\\.?\\s*([\\d.,]+).*?Fch\\s*([\\d.,]+)/i);
+    const vol = text.match(/Vol\\s*([\\d.,]+\\s*[KkMm]?)/i);
+    const change = text.match(/([+\\-−]?\\d[\\d.,]*)\\s*\\(([+\\-−]?\\d[\\d.,]*)%\\)/);
+    const lastMatch = title.match(/(?:WIN1!|WDO1!)\\s+([\\d.,]+)/i) || text.match(/(?:WIN1!|WDO1!)\\s+15m.*?Fch\\s*([\\d.,]+)/i);
+    return {
+      asset,
+      symbol,
+      interval,
+      sourceUrl: url,
+      capturedAt: new Date().toLocaleString("sv-SE"),
+      open: ohlc ? parseBR(ohlc[1]) : null,
+      high: ohlc ? parseBR(ohlc[2]) : null,
+      low: ohlc ? parseBR(ohlc[3]) : null,
+      close: ohlc ? parseBR(ohlc[4]) : null,
+      last: lastMatch ? parseBR(lastMatch[1]) : null,
+      change: change ? parseBR(change[1]) : null,
+      changePct: change ? parseBR(change[2]) : null,
+      volume: vol ? parseBR(vol[1]) : null,
+      rawText: text.slice(0, 900)
+    };
+  };
+  const send = async () => {
+    const payload = detect();
+    if (!payload.asset) {
+      console.warn("Codex TradingView capture: open WIN1! or WDO1! chart first.");
+      return;
+    }
+    if (payload.interval !== "15m") console.warn("Codex TradingView capture: chart does not look like 15m yet.", payload);
+    const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    console.log("Codex TradingView capture", await response.json());
+  };
+  clearInterval(window.__codexTradingViewCaptureTimer);
+  window.__codexTradingViewCaptureTimer = setInterval(send, 60000);
+  send();
+  alert("Codex TradingView 15m capture is running once per minute for this tab.");
+})();`;
+    const bookmarklet = `javascript:${encodeURIComponent(captureCode)}`;
+    document.getElementById("bookmarklet").href = bookmarklet;
+    document.getElementById("code").value = captureCode;
+    document.getElementById("copy").addEventListener("click", async () => {
+      await navigator.clipboard.writeText(bookmarklet);
+      document.getElementById("status").textContent = "Copied.";
+    });
+  </script>
+</body>
+</html>

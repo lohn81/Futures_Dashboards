@@ -811,6 +811,7 @@
     let externalCandlesAt = 0;
     let tradingViewSnapshots = {};
     let tradingViewHistory = [];
+    let tradingViewBrowserHistory = [];
     let tradingViewSnapshotsAt = 0;
 
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -1438,10 +1439,17 @@
       const item = externalCandles?.[asset];
       const tv = tradingViewSnapshots?.[asset];
       const tvScanner = tv?.scanner || {};
-      const tvScore = tvScanner.status === "ok" && Number.isFinite(tvScanner.change)
+      const tvBrowser = tv?.browser || {};
+      const browserScore = Number.isFinite(tvBrowser.changePct)
+        ? clamp(tvBrowser.changePct * 2.4, -14, 14)
+        : 0;
+      const scannerScore = tvScanner.status === "ok" && Number.isFinite(tvScanner.change)
         ? clamp(tvScanner.change * 2.4, -12, 12)
         : 0;
-      const tvNote = tvScanner.status === "ok"
+      const tvScore = browserScore || scannerScore;
+      const tvNote = Number.isFinite(tvBrowser.changePct)
+        ? `TradingView browser ${tvBrowser.symbol || tv.symbol || asset} ${tvBrowser.interval || ""} ${signed(tvBrowser.changePct, 2)}%`
+        : tvScanner.status === "ok"
         ? `TradingView ${tv.symbol} ${signed(tvScanner.change, 2)}%`
         : `TradingView ${tv?.page?.status || tvScanner.status || "not loaded"}`;
       if (!item || item.status !== "ok" || !Number.isFinite(item.open) || !Number.isFinite(item.close)) {
@@ -1894,27 +1902,33 @@
       const item = tradingViewSnapshots?.[model.asset];
       if (!item) {
         return `<div class="manual-panel">
-          <div class="plan-head"><h3>TradingView 1-Min Snapshot</h3><span class="badge wait">LOADING</span></div>
+          <div class="plan-head"><h3>TradingView 15m Browser Capture</h3><span class="badge wait">LOADING</span></div>
           <p class="tiny" style="margin:0;">Waiting for one-minute TradingView reference fetch.</p>
         </div>`;
       }
       const scanner = item.scanner || {};
       const page = item.page || {};
-      const cls = scanner.status === "ok" ? "buy" : page.status === "ok" ? "info" : "wait";
-      const historyCount = tradingViewHistory.filter((row) => row.asset === model.asset).length;
+      const browser = item.browser || {};
+      const hasBrowser = Number.isFinite(browser.close) || Number.isFinite(browser.last) || Number.isFinite(browser.changePct);
+      const cls = hasBrowser ? "buy" : scanner.status === "ok" ? "buy" : page.status === "ok" ? "info" : "wait";
+      const historyCount = hasBrowser
+        ? tradingViewBrowserHistory.filter((row) => row.asset === model.asset).length
+        : tradingViewHistory.filter((row) => row.asset === model.asset).length;
       return `<div class="manual-panel">
         <div class="plan-head">
-          <h3>TradingView 1-Min Snapshot</h3>
-          <span class="badge ${cls}">${scanner.status === "ok" ? "SCANNER" : page.status === "ok" ? "PAGE OK" : "LIMITED"}</span>
+          <h3>TradingView 15m Browser Capture</h3>
+          <span class="badge ${cls}">${hasBrowser ? "BROWSER 15M" : scanner.status === "ok" ? "SCANNER" : page.status === "ok" ? "PAGE OK" : "LIMITED"}</span>
         </div>
         <div class="levels">
           <div class="level"><span>Symbol</span><b>${item.symbol}</b><small class="level-note"><a href="${item.sourceUrl}" target="_blank" rel="noreferrer">open chart</a></small></div>
-          <div class="level"><span>Last TV Close</span><b>${Number.isFinite(scanner.close) ? fmt(scanner.close, precision) : "--"}</b></div>
-          <div class="level"><span>TV Change</span><b>${Number.isFinite(scanner.change) ? signed(scanner.change, 2) + "%" : "--"}</b></div>
+          <div class="level"><span>TV Close</span><b>${Number.isFinite(browser.close) ? fmt(browser.close, precision) : Number.isFinite(scanner.close) ? fmt(scanner.close, precision) : "--"}</b></div>
+          <div class="level"><span>TV Change</span><b>${Number.isFinite(browser.changePct) ? signed(browser.changePct, 2) + "%" : Number.isFinite(scanner.change) ? signed(scanner.change, 2) + "%" : "--"}</b></div>
+          <div class="level"><span>Open / High</span><b>${Number.isFinite(browser.open) ? fmt(browser.open, precision) : "--"} / ${Number.isFinite(browser.high) ? fmt(browser.high, precision) : "--"}</b></div>
+          <div class="level"><span>Low / Vol</span><b>${Number.isFinite(browser.low) ? fmt(browser.low, precision) : "--"} / ${Number.isFinite(browser.volume) ? fmt(browser.volume, 0) : "--"}</b></div>
           <div class="level"><span>TV RSI</span><b>${Number.isFinite(scanner.rsi) ? fmt(scanner.rsi, 1) : "--"}</b></div>
-          <div class="level"><span>1-Min Samples</span><b>${historyCount}</b></div>
+          <div class="level"><span>Samples</span><b>${historyCount}</b></div>
         </div>
-        <p class="tiny" style="margin:0;">Captured ${item.capturedAt || "--"}. ${scanner.error || page.error || item.note || ""}</p>
+        <p class="tiny" style="margin:0;">Captured ${browser.capturedAt || item.capturedAt || "--"}. ${hasBrowser ? browser.note : scanner.error || page.error || item.note || ""}</p>
       </div>`;
     }
 
@@ -2064,6 +2078,7 @@
         const payload = await response.json();
         tradingViewSnapshots = payload.latest || {};
         tradingViewHistory = Array.isArray(payload.history) ? payload.history : [];
+        tradingViewBrowserHistory = Array.isArray(payload.browserHistory) ? payload.browserHistory : [];
         tradingViewSnapshotsAt = Date.now();
         if (lastPayload) renderFromPayload(lastPayload);
       } catch {
@@ -2095,7 +2110,7 @@
       }
       notes.push("Aggression, VWAP, HiLo, RSI, stochastic, DI, and money-flow columns are now live inputs.");
       notes.push(`${historicalMarket.source}: ${historicalMarket.loaded ? `daily confirmation loaded for ${historicalMarket.details.map((item) => item.name).join(", ")}.` : "using local DDE session until public daily history is reachable."}`);
-      notes.push("TradingView WIN1!/WDO1! chart pages are fetched by the bridge once per minute as reference snapshots; scanner values are used only if TradingView returns them.");
+      notes.push("TradingView WIN1!/WDO1! uses local 15m browser captures when you run the helper on the logged-in chart; scanner/page values are fallback references.");
       notes.push("Fields not present in Excel are no longer estimated; the dashboard scores what Profit exports.");
       document.getElementById("globalNotes").innerHTML = notes.map((note, index) => `<li><span class="dot" style="background:${index ? "var(--blue)" : "var(--amber)"}"></span><span>${note}</span></li>`).join("");
     }

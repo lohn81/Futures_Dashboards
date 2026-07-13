@@ -11,6 +11,7 @@ $script:LastTradingViewJson = $null
 $script:LastTradingViewReadAt = [DateTime]::MinValue
 $script:TradingViewCacheMs = 60000
 $script:TradingViewHistoryPath = Join-Path $PSScriptRoot "tradingview_minute_snapshots.json"
+$script:TradingViewBrowserCapturePath = Join-Path $PSScriptRoot "tradingview_browser_captures.json"
 
 function Convert-ToNumber($value) {
   if ($null -eq $value) { return $null }
@@ -18,17 +19,28 @@ function Convert-ToNumber($value) {
   $text = $text.Trim()
   if ($text -eq "" -or $text -eq "-") { return $null }
   $text = $text -replace "\s", ""
+  $multiplier = 1.0
+  if ($text -match "(?i)^(.+)([km])$") {
+    $text = $matches[1]
+    if ($matches[2].ToLowerInvariant() -eq "k") {
+      $multiplier = 1000.0
+    } else {
+      $multiplier = 1000000.0
+    }
+  }
   if ($text -match "^-?\d{1,3}(,\d{3})+(\.\d+)?$") {
     $text = $text -replace ",", ""
   } elseif ($text -match "^-?\d{1,3}(\.\d{3})+(,\d+)?$") {
     $text = ($text -replace "\.", "") -replace ",", "."
+  } elseif ($text -match "^-?\d+,\d+$") {
+    $text = $text -replace ",", "."
   }
   $number = 0.0
   if ([double]::TryParse($text, [Globalization.NumberStyles]::Any, [Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
-    return $number
+    return $number * $multiplier
   }
   if ([double]::TryParse($text, [Globalization.NumberStyles]::Any, [Globalization.CultureInfo]::CurrentCulture, [ref]$number)) {
-    return $number
+    return $number * $multiplier
   }
   return $null
 }
@@ -240,6 +252,97 @@ function Save-TradingViewHistory($history) {
   [IO.File]::WriteAllText($script:TradingViewHistoryPath, $json, [Text.Encoding]::UTF8)
 }
 
+function Get-TradingViewBrowserCaptures {
+  if (!(Test-Path -LiteralPath $script:TradingViewBrowserCapturePath)) {
+    return @()
+  }
+  try {
+    $raw = [IO.File]::ReadAllText($script:TradingViewBrowserCapturePath, [Text.Encoding]::UTF8)
+    if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
+    $parsed = $raw | ConvertFrom-Json
+    if ($parsed -is [array]) { return @($parsed) }
+    return @($parsed)
+  } catch {
+    return @()
+  }
+}
+
+function Save-TradingViewBrowserCaptures($history) {
+  $json = @($history) | ConvertTo-Json -Depth 8
+  [IO.File]::WriteAllText($script:TradingViewBrowserCapturePath, $json, [Text.Encoding]::UTF8)
+}
+
+function Read-RequestBody($context) {
+  $reader = [IO.StreamReader]::new($context.Request.InputStream, $context.Request.ContentEncoding)
+  try {
+    return $reader.ReadToEnd()
+  } finally {
+    $reader.Close()
+  }
+}
+
+function Get-TradingViewAssetFromSymbol($symbol, $asset, $sourceUrl) {
+  if ($sourceUrl -match "WDO1") { return "WDOFUT" }
+  if ($sourceUrl -match "WIN1") { return "WINFUT" }
+  $text = "$symbol $asset"
+  if ($text -match "WIN1|WINFUT") { return "WINFUT" }
+  if ($text -match "WDO1|WDOFUT") { return "WDOFUT" }
+  return $asset
+}
+
+function Accept-TradingViewBrowserCaptureJson($context) {
+  $body = Read-RequestBody $context
+  if ([string]::IsNullOrWhiteSpace($body)) {
+    throw "TradingView browser capture body is empty."
+  }
+
+  $payload = $body | ConvertFrom-Json
+  $asset = Get-TradingViewAssetFromSymbol $payload.symbol $payload.asset $payload.sourceUrl
+  if ([string]::IsNullOrWhiteSpace($asset)) {
+    throw "Capture did not include a WIN1!/WDO1! symbol or asset."
+  }
+
+  $capturedAt = if ($payload.capturedAt) { [string]$payload.capturedAt } else { (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
+  $snapshot = [ordered]@{
+    asset = $asset
+    symbol = [string]$payload.symbol
+    interval = [string]$payload.interval
+    source = "TradingView Browser"
+    sourceUrl = [string]$payload.sourceUrl
+    capturedAt = $capturedAt
+    open = Convert-ToNumber $payload.open
+    high = Convert-ToNumber $payload.high
+    low = Convert-ToNumber $payload.low
+    close = Convert-ToNumber $payload.close
+    last = Convert-ToNumber $payload.last
+    change = Convert-ToNumber $payload.change
+    changePct = Convert-ToNumber $payload.changePct
+    volume = Convert-ToNumber $payload.volume
+    rawText = ([string]$payload.rawText)
+    note = "Captured from the logged-in TradingView chart by the local bookmarklet helper."
+  }
+
+  if ($snapshot.rawText.Length -gt 600) {
+    $snapshot.rawText = $snapshot.rawText.Substring(0, 600)
+  }
+
+  $history = @(Get-TradingViewBrowserCaptures)
+  $history += $snapshot
+  $cutoff = (Get-Date).AddDays(-21)
+  $history = @($history | Where-Object {
+    try { ([datetime]$_.capturedAt) -ge $cutoff } catch { $true }
+  } | Select-Object -Last 5000)
+  Save-TradingViewBrowserCaptures $history
+  $script:LastTradingViewJson = $null
+
+  return ([ordered]@{
+    ok = $true
+    acceptedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    latest = $snapshot
+    count = $history.Count
+  } | ConvertTo-Json -Depth 8)
+}
+
 function Invoke-TradingViewScanner($symbol) {
   $body = @{
     symbols = @{
@@ -328,6 +431,7 @@ function Get-TradingViewSnapshotsJson {
     @{ asset = "WDOFUT"; symbol = "BMFBOVESPA:WDO1!"; url = "https://br.tradingview.com/chart/?symbol=BMFBOVESPA%3AWDO1%21" }
   )
   $history = @(Get-TradingViewHistory)
+  $browserHistory = @(Get-TradingViewBrowserCaptures)
   $latest = [ordered]@{}
 
   foreach ($source in $sources) {
@@ -342,12 +446,25 @@ function Get-TradingViewSnapshotsJson {
   })
   Save-TradingViewHistory $history
 
+  $browserLatest = [ordered]@{}
+  foreach ($capture in ($browserHistory | Sort-Object capturedAt)) {
+    if ($capture.asset) {
+      $browserLatest[$capture.asset] = $capture
+    }
+  }
+  foreach ($asset in $browserLatest.Keys) {
+    if ($latest[$asset]) {
+      $latest[$asset].browser = $browserLatest[$asset]
+    }
+  }
+
   $payload = [ordered]@{
     updatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     cacheSeconds = 60
-    caveat = "TradingView is not treated as an official API. Scanner values are used only when TradingView returns them; chart pages are stored as one-minute reference snapshots."
+    caveat = "TradingView is not treated as an official API. Scanner values are used only when TradingView returns them; logged-in browser captures are local reference snapshots from your open chart."
     latest = $latest
     history = $history
+    browserHistory = $browserHistory
   }
   $script:LastTradingViewJson = ($payload | ConvertTo-Json -Depth 10)
   $script:LastTradingViewReadAt = Get-Date
@@ -386,16 +503,21 @@ try {
     try {
       if ($context.Request.HttpMethod -eq "OPTIONS") {
         Write-Response $context 204 "text/plain" ""
-      } elseif ($path -eq "/" -or $path -eq "/winfut_bovespa_dashboard.html" -or $path -eq "/winfut_dashboard.html" -or $path -eq "/wdofut_dashboard.html" -or $path -eq "/pro_daytrade_dashboard.html") {
+      } elseif ($path -eq "/" -or $path -eq "/winfut_bovespa_dashboard.html" -or $path -eq "/winfut_dashboard.html" -or $path -eq "/wdofut_dashboard.html" -or $path -eq "/pro_daytrade_dashboard.html" -or $path -eq "/tradingview_capture_bookmarklet.html") {
         $fileName = switch ($path) {
           "/pro_daytrade_dashboard.html" { "pro_daytrade_dashboard.html" }
           "/winfut_dashboard.html" { "winfut_dashboard.html" }
           "/wdofut_dashboard.html" { "wdofut_dashboard.html" }
+          "/tradingview_capture_bookmarklet.html" { "tradingview_capture_bookmarklet.html" }
           default { "winfut_bovespa_dashboard.html" }
         }
         $htmlPath = Join-Path $PSScriptRoot $fileName
         $html = [IO.File]::ReadAllText($htmlPath, [Text.Encoding]::UTF8)
         Write-Response $context 200 "text/html; charset=utf-8" $html
+      } elseif ($path -eq "/api/tradingview-browser-capture" -and $context.Request.HttpMethod -eq "POST") {
+        Write-Response $context 200 "application/json; charset=utf-8" (Accept-TradingViewBrowserCaptureJson $context)
+      } elseif ($path -eq "/api/tradingview-browser-captures") {
+        Write-Response $context 200 "application/json; charset=utf-8" ((Get-TradingViewBrowserCaptures) | ConvertTo-Json -Depth 8)
       } elseif ($path -eq "/api/quotes") {
         Write-Response $context 200 "application/json; charset=utf-8" (Get-CachedQuotesJson)
       } elseif ($path -eq "/api/external-9am-candles") {
