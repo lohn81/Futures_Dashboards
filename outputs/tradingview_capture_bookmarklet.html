@@ -21,7 +21,7 @@
   <main>
     <section class="panel">
       <h1>TradingView 15m Capture Helper</h1>
-      <p>Open your logged-in TradingView chart with <code>&interval=15</code>, then run this helper from that TradingView tab. It captures WIN1!/WDO1! OHLC, change, and volume once per minute into the local dashboard bridge.</p>
+      <p>Open your logged-in TradingView chart with <code>&interval=15</code>, then run this helper from that TradingView tab. It captures WIN1!/WDO1!/BIT1! OHLC, change, and volume once per minute into the local dashboard bridge.</p>
       <div class="row">
         <a class="button" id="bookmarklet" href="#">TradingView 15m Capture</a>
         <button id="copy">Copy bookmarklet</button>
@@ -53,13 +53,13 @@
     const title = document.title || "";
     const url = location.href;
     const activeHint = title + " " + url;
-    const symbol = /WDO1!/i.test(activeHint) ? "BMFBOVESPA:WDO1!" : /WIN1!/i.test(activeHint) ? "BMFBOVESPA:WIN1!" : /WDO1!/i.test(text) ? "BMFBOVESPA:WDO1!" : /WIN1!/i.test(text) ? "BMFBOVESPA:WIN1!" : "";
-    const asset = /WIN1!/i.test(symbol) ? "WINFUT" : /WDO1!/i.test(symbol) ? "WDOFUT" : "";
+    const symbol = /BIT1!/i.test(activeHint) ? "BMFBOVESPA:BIT1!" : /WDO1!/i.test(activeHint) ? "BMFBOVESPA:WDO1!" : /WIN1!/i.test(activeHint) ? "BMFBOVESPA:WIN1!" : /BIT1!/i.test(text) ? "BMFBOVESPA:BIT1!" : /WDO1!/i.test(text) ? "BMFBOVESPA:WDO1!" : /WIN1!/i.test(text) ? "BMFBOVESPA:WIN1!" : "";
+    const asset = /BIT1!/i.test(symbol) ? "BITFUT" : /WIN1!/i.test(symbol) ? "WINFUT" : /WDO1!/i.test(symbol) ? "WDOFUT" : "";
     const interval = /interval=15/.test(url) || /\\b15m\\b|15 minutos/i.test(text) ? "15m" : "";
     const ohlc = text.match(/Abr\\s*([\\d.,]+).*?Máx\\.?\\s*([\\d.,]+).*?Mín\\.?\\s*([\\d.,]+).*?Fch\\s*([\\d.,]+)/i);
     const vol = text.match(/Vol\\s*([\\d.,]+\\s*[KkMm]?)/i);
     const change = text.match(/([+\\-−]?\\d[\\d.,]*)\\s*\\(([+\\-−]?\\d[\\d.,]*)%\\)/);
-    const lastMatch = title.match(/(?:WIN1!|WDO1!)\\s+([\\d.,]+)/i) || text.match(/(?:WIN1!|WDO1!)\\s+15m.*?Fch\\s*([\\d.,]+)/i);
+    const lastMatch = title.match(/(?:WIN1!|WDO1!|BIT1!)\\s+([\\d.,]+)/i) || text.match(/(?:WIN1!|WDO1!|BIT1!)\\s+15m.*?Fch\\s*([\\d.,]+)/i);
     return {
       asset,
       symbol,
@@ -80,7 +80,7 @@
   const send = async () => {
     const payload = detect();
     if (!payload.asset) {
-      console.warn("Codex TradingView capture: open WIN1! or WDO1! chart first.");
+      console.warn("Codex TradingView capture: open WIN1!, WDO1!, or BIT1! chart first.");
       return;
     }
     if (payload.interval !== "15m") console.warn("Codex TradingView capture: chart does not look like 15m yet.", payload);

@@ -497,9 +497,11 @@ function Read-RequestBody($context) {
 }
 
 function Get-TradingViewAssetFromSymbol($symbol, $asset, $sourceUrl) {
+  if ($sourceUrl -match "BIT1") { return "BITFUT" }
   if ($sourceUrl -match "WDO1") { return "WDOFUT" }
   if ($sourceUrl -match "WIN1") { return "WINFUT" }
   $text = "$symbol $asset"
+  if ($text -match "BIT1|BITFUT") { return "BITFUT" }
   if ($text -match "WIN1|WINFUT") { return "WINFUT" }
   if ($text -match "WDO1|WDOFUT") { return "WDOFUT" }
   return $asset
@@ -514,7 +516,7 @@ function Accept-TradingViewBrowserCaptureJson($context) {
   $payload = $body | ConvertFrom-Json
   $asset = Get-TradingViewAssetFromSymbol $payload.symbol $payload.asset $payload.sourceUrl
   if ([string]::IsNullOrWhiteSpace($asset)) {
-    throw "Capture did not include a WIN1!/WDO1! symbol or asset."
+    throw "Capture did not include a WIN1!/WDO1!/BIT1! symbol or asset."
   }
 
   $capturedAt = if ($payload.capturedAt) { [string]$payload.capturedAt } else { (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
@@ -539,6 +541,17 @@ function Accept-TradingViewBrowserCaptureJson($context) {
 
   if ($snapshot.rawText.Length -gt 600) {
     $snapshot.rawText = $snapshot.rawText.Substring(0, 600)
+  }
+
+  $hasMarketValue = $false
+  foreach ($field in @("open", "high", "low", "close", "last", "changePct")) {
+    if ($null -ne $snapshot[$field]) {
+      $hasMarketValue = $true
+      break
+    }
+  }
+  if (!$hasMarketValue) {
+    throw "TradingView browser capture did not include readable market values. The chart may be private, blocked, or not fully loaded."
   }
 
   $history = @(Get-TradingViewBrowserCaptures)
@@ -643,7 +656,8 @@ function Get-TradingViewSnapshotsJson {
 
   $sources = @(
     @{ asset = "WINFUT"; symbol = "BMFBOVESPA:WIN1!"; url = "https://br.tradingview.com/chart/?symbol=BMFBOVESPA%3AWIN1%21" },
-    @{ asset = "WDOFUT"; symbol = "BMFBOVESPA:WDO1!"; url = "https://br.tradingview.com/chart/?symbol=BMFBOVESPA%3AWDO1%21" }
+    @{ asset = "WDOFUT"; symbol = "BMFBOVESPA:WDO1!"; url = "https://br.tradingview.com/chart/?symbol=BMFBOVESPA%3AWDO1%21" },
+    @{ asset = "BITFUT"; symbol = "BMFBOVESPA:BIT1!"; url = "https://br.tradingview.com/chart/?symbol=BMFBOVESPA%3ABIT1%21" }
   )
   $history = @(Get-TradingViewHistory)
   $browserHistory = @(Get-TradingViewBrowserCaptures)

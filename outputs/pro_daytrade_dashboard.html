@@ -2093,8 +2093,8 @@
       if (!item) {
         if (model.asset === "BITFUT") {
           return `<div class="manual-panel">
-            <div class="plan-head"><h3>External Snapshot</h3><span class="badge info">ATLAS / QUOTES</span></div>
-            <p class="tiny" style="margin:0;">BITFUT is currently driven by the quote file indicators and Atlas 5m/15m/30m candle history. TradingView browser capture is configured for WIN1!/WDO1!.</p>
+            <div class="plan-head"><h3>TradingView 15m Browser Capture</h3><span class="badge wait">LOADING</span></div>
+            <p class="tiny" style="margin:0;">Waiting for BIT1! TradingView reference. BITFUT still uses quote-file indicators and Atlas candles while the external snapshot loads.</p>
           </div>`;
         }
         return `<div class="manual-panel">
@@ -2116,7 +2116,7 @@
           <span class="badge ${cls}">${hasBrowser ? "BROWSER 15M" : scanner.status === "ok" ? "SCANNER" : page.status === "ok" ? "PAGE OK" : "LIMITED"}</span>
         </div>
         <div class="levels">
-          <div class="level"><span>Symbol</span><b>${item.symbol}</b><small class="level-note"><a href="${item.sourceUrl}" target="_blank" rel="noreferrer">open chart</a></small></div>
+          <div class="level"><span>Symbol</span><b>${item.symbol}</b><small class="level-note"><a href="${browser.sourceUrl || item.sourceUrl}" target="_blank" rel="noreferrer">open chart</a></small></div>
           <div class="level"><span>TV Close</span><b>${Number.isFinite(browser.close) ? fmt(browser.close, precision) : Number.isFinite(scanner.close) ? fmt(scanner.close, precision) : "--"}</b></div>
           <div class="level"><span>TV Change</span><b>${Number.isFinite(browser.changePct) ? signed(browser.changePct, 2) + "%" : Number.isFinite(scanner.change) ? signed(scanner.change, 2) + "%" : "--"}</b></div>
           <div class="level"><span>Open / High</span><b>${Number.isFinite(browser.open) ? fmt(browser.open, precision) : "--"} / ${Number.isFinite(browser.high) ? fmt(browser.high, precision) : "--"}</b></div>
@@ -2326,7 +2326,7 @@
       notes.push("Aggression, VWAP, HiLo, RSI, stochastic, SMI/StochRSI, ADX, volatility, market facilitation, PVT, and money-flow columns are live score inputs.");
       if (atlasFiles.length) notes.push(`Atlas CSV history loaded from C:\\project atlas: ${atlasFiles.length} files feeding 5m/15m/30m candle analysis.`);
       notes.push(`${historicalMarket.source}: ${historicalMarket.loaded ? `daily confirmation loaded for ${historicalMarket.details.map((item) => item.name).join(", ")}.` : "using local DDE session until public daily history is reachable."}`);
-      notes.push("TradingView WIN1!/WDO1! uses local 15m browser captures when you run the helper on the logged-in chart; scanner/page values are fallback references.");
+      notes.push("TradingView WIN1!/WDO1!/BIT1! uses local 15m browser captures when you run the helper on the logged-in chart; scanner/page values are fallback references.");
       notes.push("Fields not present in Excel are no longer estimated; the dashboard scores what Profit exports.");
       document.getElementById("globalNotes").innerHTML = notes.map((note, index) => `<li><span class="dot" style="background:${index ? "var(--blue)" : "var(--amber)"}"></span><span>${note}</span></li>`).join("");
     }
